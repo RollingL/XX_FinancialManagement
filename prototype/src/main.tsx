@@ -3,6 +3,10 @@ import {createRoot} from 'react-dom/client';
 import {allocate,balance,cents,decimal,money,paid,remaining,rowCents,sum,validateAllocation} from './model.ts';
 import type {Category,Expense} from './model.ts';
 import './style.css';
+import './expense-export.css';
+import {expenseFilterError,expenseStatus,filterExpenses,expenseCsv} from './expense-export.ts';
+import type {ExpenseFilters} from './expense-export.ts';
+import {downloadExpenseCsv} from './expense-download.ts';
 import ExpenseScreenshot,{ExpenseAttachment} from './ExpenseScreenshot.tsx';
 import {ledgerCommand,imagePayload} from './ledger.ts';
 import type {LedgerState} from './ledger.ts';
@@ -24,7 +28,7 @@ function Icon({name}:{name:'home'|'meal'|'work'|'receipt'|'wallet'|'clock'|'char
  return <svg className="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]}/></svg>;
 }
 function App(){
- const [state,setState]=useState<LedgerState>({expenses:[],batches:[],advances:[]}),[category,setCategory]=useState('全部费用'),[query,setQuery]=useState(''),[status,setStatus]=useState('全部状态'),[month,setMonth]=useState(''),[missing,setMissing]=useState(false);
+ const [state,setState]=useState<LedgerState>({expenses:[],batches:[],advances:[]}),[category,setCategory]=useState('全部费用'),[query,setQuery]=useState(''),[status,setStatus]=useState('全部状态'),[startDate,setStartDate]=useState(''),[endDate,setEndDate]=useState(''),[missing,setMissing]=useState(false);
  const [selected,setSelected]=useState<number[]>([]),[panel,setPanel]=useState<'new'|'advance'|'advance-detail'|'reimburse'|'detail'|'batch-detail'|'correction'|null>(null),[detail,setDetail]=useState<number>(1001),[notice,setNotice]=useState(''),[error,setError]=useState('');
  const [newCategory,setNewCategory]=useState<Category>('接待'),[date,setDate]=useState(today),[merchant,setMerchant]=useState(''),[amount,setAmount]=useState(''),[note,setNote]=useState('');
  const [total,setTotal]=useState(''),[rows,setRows]=useState<Record<number,string>>({}),[batchDate,setBatchDate]=useState(today),[saving,setSaving]=useState(false),[cancelId,setCancelId]=useState<number|null>(null);
@@ -50,8 +54,14 @@ function App(){
  useEffect(()=>{ledgerCommand({kind:'read'}).then(value=>{setState(value);setLoaded(true);try{if(sessionStorage.getItem('qianlai-reset-complete')==='1'){sessionStorage.removeItem('qianlai-reset-complete');setNotice('清空操作已完成，已重新加载当前账本。');}}catch{/* 提示存储不可用不影响账本加载。 */}}).catch(e=>{setCategory('备份');setNotice(`账本未加载：${e.message}。当前金额暂不显示。`);});},[]);
  const dialog=useRef<HTMLDialogElement>(null),saveLock=useRef(false);
  const {expenses,batches,advances}=state,bal=balance(expenses,advances),outstanding=sum(expenses.map(e=>remaining(e,batches)));
- const label=(e:Expense)=>paid(e.id,batches)===0?'未报销':remaining(e,batches)===0?'已报销':'部分报销';
- const visible=expenses.filter(e=>(category==='全部费用'||e.category===category)&&matchesExpense(e,query)&&(!month||e.date.startsWith(month))&&(status==='全部状态'||label(e)===status)&&(!missing||expenseInvoiceAmount(state,e.id)<e.amount));
+ const label=(e:Expense)=>expenseStatus(e,batches);
+ const filters:ExpenseFilters={category:category==='接待'||category==='办公'?category:'全部费用',query,status,startDate,endDate,missing};
+ const filterError=expenseFilterError(filters),visible=filterExpenses(state,filters);
+ function exportExpenses(){
+  if(!loaded||filterError||!visible.length)return;
+  try{downloadExpenseCsv(expenseCsv(state,visible));setNotice(`已发起 ${visible.length} 笔费用的 CSV 下载${window.localLedger?'，请在保存窗口选择位置。':'，请在浏览器下载记录中确认。'}`);}
+  catch(e){setNotice(`CSV 导出未开始：${(e as Error).message}`);}
+ }
  const isOverview=category==='全部费用',isAdvances=category==='预支',isBatches=category==='报销记录',isBackup=category==='备份',isInvoices=category==='发票';
  const chosen=expenses.filter(e=>Object.hasOwn(rows,e.id)),chosenRemaining=sum(chosen.map(e=>remaining(e,batches)));
  const listChosenRemaining=sum(expenses.filter(e=>selected.includes(e.id)).map(e=>remaining(e,batches)));
@@ -111,7 +121,7 @@ function App(){
  let afterAdvance:number|null=null;try{if(amount)afterAdvance=sum([sum([...advances,cents(amount)]),-sum(expenses.map(e=>e.amount))]);}catch{}
  const spending=expenseSummary(expenses);
  const pending=expenses.filter(e=>remaining(e,batches)>0),uncovered=expenses.filter(e=>expenseInvoiceAmount(state,e.id)<e.amount);
- const expensePages=usePagination(visible,JSON.stringify([category,query,status,month,missing]));
+ const expensePages=usePagination(visible,JSON.stringify(filters));
  const pagePending=expensePages.items.filter(e=>remaining(e,batches)>0).map(e=>e.id);
  const advancePages=usePagination(advances.map((value,index)=>({value,index})).reverse(),category);
  const pickerFiltered=expenses.filter(e=>(pickerCategory==='全部'||e.category===pickerCategory)&&matchesExpense(e,pickerQuery));
@@ -147,9 +157,11 @@ function App(){
     <Pagination pager={advancePages} label="预支到账"/><footer className="table-footer"><span>累计预支 <b>¥{money(sum(advances))}</b></span><span>人民币元</span></footer>
     <p className="advance-help">当前支持新增与查看；可选保留到账截图，纠错、作废、退还尚未开放。旧记录缺失的日期不会补填为今天。</p>
    </section>:<div className="content-grid">
-    <section className="workspace" aria-label="费用列表">
-     <div className="workspace-heading"><h2>{category==='全部费用'?'费用记录':`${category}记录`}</h2><span>{visible.length} 笔</span></div>
-     <div className="filters"><label className="search"><Icon name="search"/><span className="sr-only">搜索商户或摘要</span><input placeholder="搜索商户或摘要" value={query} onChange={e=>setQuery(e.target.value)}/></label><label><span className="sr-only">月份</span><input aria-label="月份" type="month" value={month} onChange={e=>setMonth(e.target.value)}/></label><select aria-label="报销状态筛选" value={status} onChange={e=>setStatus(e.target.value)}>{['全部状态','未报销','部分报销','已报销'].map(x=><option key={x}>{x}</option>)}</select><label className="check"><input type="checkbox" checked={missing} onChange={e=>setMissing(e.target.checked)}/>缺发票</label>{(query||month||status!=='全部状态'||missing)&&<button className="link" onClick={()=>{setQuery('');setMonth('');setStatus('全部状态');setMissing(false);}}>清除筛选</button>}</div>
+    <section className="workspace expense-workspace" aria-label="费用列表">
+     <div className="workspace-heading"><div className="expense-heading-title"><h2>{category==='全部费用'?'费用记录':`${category}记录`}</h2><span>{visible.length} 笔</span></div><button className="expense-export-button" disabled={!loaded||!!filterError||!visible.length} aria-describedby="expense-export-scope" onClick={exportExpenses}>导出当前筛选 CSV</button></div>
+     <div className="filters expense-filters"><label className="search"><Icon name="search"/><span className="sr-only">搜索商户、摘要、备注或编号</span><input placeholder="搜索商户、摘要、备注或编号" value={query} onChange={e=>setQuery(e.target.value)}/></label><label className="expense-date-filter">支出开始日期<input aria-label="支出开始日期" type="date" value={startDate} onChange={e=>setStartDate(e.target.value)}/></label><label className="expense-date-filter">支出结束日期<input aria-label="支出结束日期" type="date" value={endDate} onChange={e=>setEndDate(e.target.value)}/></label><select aria-label="报销状态筛选" value={status} onChange={e=>setStatus(e.target.value)}>{['全部状态','未报销','部分报销','已报销'].map(x=><option key={x}>{x}</option>)}</select><label className="check"><input type="checkbox" checked={missing} onChange={e=>setMissing(e.target.checked)}/>缺发票</label>{(query||startDate||endDate||status!=='全部状态'||missing)&&<button className="link" onClick={()=>{setQuery('');setStartDate('');setEndDate('');setStatus('全部状态');setMissing(false);}}>清除筛选</button>}</div>
+     {filterError&&<p className="error expense-filter-error" role="alert">{filterError}</p>}
+     <p className="expense-export-scope" id="expense-export-scope">导出当前类别及筛选后的全部 {visible.length} 笔，包含所有页，与勾选无关。CSV 仅含费用明细，不含附件，也不是完整备份。</p>
      <div className="table-scroll"><table className={`expense-table ${isOverview?'overview-table':''}`}><thead><tr>{!isOverview&&<th className="check-cell"><input type="checkbox" aria-label="选择本页待报销费用" checked={pagePending.length>0&&pagePending.every(id=>selected.includes(id))} disabled={!pagePending.length} onChange={ev=>setSelected(selectScope(selected,pagePending,ev.target.checked))}/></th>}<th>费用</th><th className="num">支出金额</th><th>报销进度</th><th><span className="sr-only">详情</span></th></tr></thead><tbody>{expensePages.items.map(e=><tr key={e.id} className={!isOverview&&selected.includes(e.id)?'selected':''} onClick={event=>{if(isOverview&&!(event.target as Element).closest('button,input,label,a,select,textarea'))openDetail(e.id);}}>{!isOverview&&<td><input aria-label={`选择费用 ${e.id}`} type="checkbox" checked={selected.includes(e.id)} disabled={remaining(e,batches)===0} onChange={()=>toggle(e.id)}/></td>}<td><div className="expense-info"><span className={`icon-disc ${e.category==='办公'?'blue':''}`}><Icon name={e.category==='办公'?'work':'meal'}/></span><div><button className="expense-name" onClick={()=>openDetail(e.id)}>{e.merchant}</button><small className="subline">{e.date} · {e.category} · #{e.id}</small></div></div></td><td className="num amount">¥{money(e.amount)}<small className="subline invoice-warning">{expenseInvoiceAmount(state,e.id)===0?'无发票':expenseInvoiceAmount(state,e.id)<e.amount?'票额不足':'票额已覆盖'}</small></td><td><span className={`status ${label(e)==='已报销'?'done':label(e)==='部分报销'?'partial':''}`}>{label(e)}</span><small className="subline">待 ¥{money(remaining(e,batches))} · 已 ¥{money(paid(e.id,batches))}</small></td><td><button className="row-detail" aria-label={`查看费用 ${e.id} 详情`} onClick={()=>openDetail(e.id)}><Icon name="chevron"/></button></td></tr>)}</tbody></table>{!visible.length&&<div className="empty"><span className="icon-disc"><Icon name="receipt"/></span><h2>{expenses.length?'没有符合条件的费用':'从第一笔费用开始'}</h2><p>{expenses.length?'调整筛选条件，或记录一笔新费用。':'手动录入，或上传支付截图辅助填写。'}</p><button disabled={!loaded} onClick={()=>openNew()}>新增费用</button></div>}</div>
      <Pagination pager={expensePages} label="费用列表"/><footer className="table-footer"><span>筛选结果 {visible.length} 笔 · 支出合计 <b>¥{money(sum(visible.map(e=>e.amount)))}</b></span><span>人民币元</span></footer>
      {!isOverview&&<div className="selection-bar"><span>{selected.length?<>已选 <b>{selected.length}</b> 笔 · 待报销 <b>¥{money(listChosenRemaining)}</b></>:'勾选费用，可合并登记报销'}</span><div>{selected.length>0&&<button onClick={()=>setSelected([])}>取消选择</button>}<button className="primary" disabled={!selected.length||listChosenRemaining===0} onClick={()=>openReimburse(selected)}>登记报销</button></div></div>}
