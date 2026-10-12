@@ -8,7 +8,7 @@
 
 2026-10-12 按用户红框移除资金卡“累计预支／登记到账”和待报销卡“已报销”底栏，卡片随内容收紧；预支登记仍从侧栏“预支”进入。左侧品牌及网页／Electron 窗口显示名称改为“钱来 财务管理系统”，问候语“你好，小徐同学”保留。内部应用标识与既有数据目录未改。范围及验证见 [QIANLAI_UI_VALIDATION](docs/QIANLAI_UI_VALIDATION.md)。
 
-最新隔离试用地址为 http://127.0.0.1:5192/ ，从侧栏进入“报销记录”。包含明确合成样例，使用 `evidence/stage0/reimbursement-records-2026-10-12/preview/.local-data/`。服务关闭后，可在项目根目录运行 `./evidence/stage0/reimbursement-records-2026-10-12/preview/start.sh` 重启；本机副本不进入 Git。此前 5173、5190、5191 及其试填数据保留，各入口不自动同步。
+最新删除功能试用地址为 http://127.0.0.1:5193/ ，从“报销记录”进入批次详情再选择“删除记录”，明确确认后不可在软件恢复。仅含新合成样例；重启脚本为 `evidence/stage0/batch-delete-2026-10-12/preview/start.sh`，不进入 Git。原 5173／5190／5191／5192 数据目录保持原位；本轮检查时这些旧端口未监听，没有重启。各入口不自动同步。见 [删除验证](docs/BATCH_DELETE_VALIDATION.md)。
 
 - [业务需求与验收规范（业务权威）](expense_bookkeeping_spec_v1.1.md)
 - [实施方案、取舍与分阶段计划](docs/IMPLEMENTATION_PLAN.md)

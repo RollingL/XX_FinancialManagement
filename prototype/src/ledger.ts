@@ -1,7 +1,8 @@
 import type {Expense,Batch} from './model.ts';
 export type AdvanceDetails={date:string;note:string;createdAt:string;attachmentId?:string};
 // Optional metadata keyed by the immutable index in advances; never another amount source.
-export type LedgerState={expenses:Expense[];batches:Batch[];advances:number[];advanceDetails?:Record<number,AdvanceDetails>};
+export type BatchEvent={requestId:string;action:'delete-batch';at:string;batchId:number;before:Batch;after:null};
+export type LedgerState={expenses:Expense[];batches:Batch[];advances:number[];advanceDetails?:Record<number,AdvanceDetails>;batchEvents?:BatchEvent[]};
 declare global{interface Window{localLedger?:{command:(payload:unknown)=>Promise<unknown>}}}
 export async function ledgerCommand<T=LedgerState>(payload:unknown):Promise<T>{
  if(window.localLedger)return await window.localLedger.command(payload) as T;

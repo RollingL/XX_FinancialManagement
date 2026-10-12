@@ -24,6 +24,7 @@ function App(){
  const [attachment,setAttachment]=useState<File|null>(null),[ocrBusy,setOcrBusy]=useState(false),[loaded,setLoaded]=useState(false);
  const [pickerQuery,setPickerQuery]=useState(''),[pickerCategory,setPickerCategory]=useState('全部');
  const [currentDay,setCurrentDay]=useState(today);
+ const [batchAction,setBatchAction]=useState<{id:number;kind:'delete-batch'}|null>(null);
  const [batchDetailId,setBatchDetailId]=useState<number|null>(null),[returnBatchId,setReturnBatchId]=useState<number|null>(null);
  useEffect(()=>{
   const preventFileNavigation=(event:DragEvent)=>{if(event.dataTransfer?.types.includes('Files'))event.preventDefault();};
@@ -46,7 +47,7 @@ function App(){
  const chosen=expenses.filter(e=>Object.hasOwn(rows,e.id)),chosenRemaining=sum(chosen.map(e=>remaining(e,batches)));
  const listChosenRemaining=sum(expenses.filter(e=>selected.includes(e.id)).map(e=>remaining(e,batches)));
  useEffect(()=>{if(panel){dialog.current?.showModal();if(panel==='new'||panel==='advance')dialog.current?.querySelector<HTMLInputElement>('input[inputmode="decimal"]')?.focus();else dialog.current?.querySelector<HTMLHeadingElement>('#panel-title')?.focus();}else dialog.current?.close();},[panel]);
- function close(){if(saveLock.current)return;setOcrBusy(false);setAttachment(null);setPanel(null);setError('');setCancelId(null);}
+ function close(){if(saveLock.current)return;setOcrBusy(false);setAttachment(null);setPanel(null);setError('');setCancelId(null);setBatchAction(null);}
  function toggle(id:number){setSelected(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);}
  function openNew(){requestId.current=crypto.randomUUID();setAttachment(null);setOcrBusy(false);setNewCategory(category==='办公'?'办公':'接待');setDate(today());setMerchant('');setAmount('');setNote('');setError('');setPanel('new');}
  function openAdvance(){requestId.current=crypto.randomUUID();setOcrBusy(false);setAttachment(null);setDate(today());setAmount('');setNote('');setError('');setPanel('advance');}
@@ -62,9 +63,12 @@ function App(){
   try{setTotal(Object.keys(next).length?decimal(sum(Object.values(next).map(rowCents))):'');setError('');}catch(e){setTotal('');setError((e as Error).message);}
  }
  function openReimburse(ids:number[]=[]){setPickerQuery('');setPickerCategory(category==='接待'||category==='办公'?category:'全部');requestId.current=crypto.randomUUID();setBatchDate(today());setBatchSelection(ids,{});setPanel('reimburse');}
- function openDetail(id:number,fromBatch:number|null=null){setReturnBatchId(fromBatch);setCancelId(null);setDetail(id);setError('');setPanel('detail');}
- function openBatchDetail(id:number){if(saveLock.current)return;setBatchDetailId(id);setCancelId(null);setError('');setPanel('batch-detail');}
- function askCancel(id:number){if(saveLock.current)return;requestId.current=crypto.randomUUID();setError('');setCancelId(id);}
+ function openDetail(id:number,fromBatch:number|null=null){setReturnBatchId(fromBatch);setBatchAction(null);setCancelId(null);setDetail(id);setError('');setPanel('detail');}
+ function openBatchDetail(id:number){if(saveLock.current)return;setBatchDetailId(id);setBatchAction(null);setCancelId(null);setError('');setPanel('batch-detail');}
+ function askCancel(id:number){if(saveLock.current)return;requestId.current=crypto.randomUUID();setBatchAction(null);setError('');setCancelId(id);}
+ function askBatchAction(id:number,kind:'delete-batch'){if(saveLock.current)return;requestId.current=crypto.randomUUID();setCancelId(null);setError('');setBatchAction({id,kind});}
+ function keepBatchAction(){if(saveLock.current)return;setBatchAction(null);setError('');}
+ async function runBatchAction(){if(saveLock.current||!batchAction)return;saveLock.current=true;setSaving(true);setError('');try{setState(await ledgerCommand({...batchAction,requestId:requestId.current}));setNotice('报销批次已删除，相关核销已撤销；资金余额未改变。');setBatchAction(null);setPanel(null);setBatchDetailId(null);}catch(e){setError((e as Error).message);}finally{saveLock.current=false;setSaving(false);}}
  function keepBatch(){if(saveLock.current)return;setCancelId(null);setError('');}
  function changeRow(id:number,value:string){const next={...rows,[id]:value};setRows(next);try{const amounts=chosen.map(e=>rowCents(next[e.id]||''));setTotal(decimal(sum(amounts)));setError('');}catch(e){setTotal('');setError((e as Error).message);}}
  async function saveExpense(event:React.FormEvent){event.preventDefault();if(saveLock.current||ocrBusy)return;try{
@@ -163,7 +167,7 @@ function App(){
     <footer className="drawer-footer"><span>合计 <b>{total||'—'}</b> 元</span><button type="button" onClick={close}>取消</button><button className="primary" type="submit" disabled={saving||!!error||!chosen.length}>{saving?'保存中…':'确认登记'}</button></footer>
    </form>}
    {panel==='advance-detail'&&currentAdvance?.attachmentId&&<div><div className="drawer-body"><h3>YZ-{String(detail+1).padStart(3,'0')} · ¥{money(advances[detail])}</h3><p className="help">到账日期 {currentAdvance.date} · {currentAdvance.note||'无备注'}</p><ExpenseAttachment key={currentAdvance.attachmentId} id={currentAdvance.attachmentId} kind="advance"/></div><footer className="drawer-footer"><button onClick={close}>返回记录</button></footer></div>}
-   {panel==='batch-detail'&&currentBatch&&<BatchDetail batch={currentBatch} batches={batches} expenses={expenses} onExpense={id=>openDetail(id,currentBatch.id)} onAskCancel={()=>askCancel(currentBatch.id)} onClose={close} cancelId={cancelId} onKeep={keepBatch} onConfirm={()=>void cancelBatch()} saving={saving} error={error}/>}
+   {panel==='batch-detail'&&currentBatch&&<BatchDetail batch={currentBatch} batches={batches} expenses={expenses} onExpense={id=>openDetail(id,currentBatch.id)} onAskCancel={()=>askCancel(currentBatch.id)} onClose={close} cancelId={cancelId} onKeep={keepBatch} onConfirm={()=>void cancelBatch()} saving={saving} error={error} deleting={batchAction?.id===currentBatch.id} onAskDelete={()=>askBatchAction(currentBatch.id,'delete-batch')} onKeepDelete={keepBatchAction} onConfirmDelete={()=>void runBatchAction()}/>}
    {panel==='detail'&&current&&<div><div className="drawer-body"><span className="muted">{current.category}费用 · #{current.id}</span><h3 className="detail-merchant">{current.merchant}</h3><div className="detail-amount">{money(current.amount)}<small> 元</small></div><dl><div><dt>实际付款日期</dt><dd>{current.date}</dd></div><div><dt>已报销</dt><dd>{money(paid(current.id,batches))} 元</dd></div><div><dt>待报销</dt><dd>{money(remaining(current,batches))} 元</dd></div><div><dt>已关联票额</dt><dd>{money(current.invoice)} 元</dd></div></dl><p className="help">{current.note}</p>{current.attachmentId&&<ExpenseAttachment key={current.attachmentId} id={current.attachmentId}/>}<h3>报销历史</h3>{historyPages.items.map(b=><div className="history" key={b.id}><div><strong>BX-{String(b.id).padStart(3,'0')} <small>{b.active?'有效':'已撤销'}</small></strong><p>{b.date} · 本费用分配 {money(b.allocations.find(a=>a.expenseId===current.id)!.amount)} 元</p></div>{b.active&&<button className="link" disabled={saving} onClick={()=>askCancel(b.id)}>撤销整批</button>}</div>)}<Pagination pager={historyPages} label="报销历史" disabled={saving}/>{!history.length&&<p className="help">暂无报销分配记录。</p>}{cancelId!==null&&<CancelConfirmation id={cancelId} saving={saving} onKeep={keepBatch} onConfirm={()=>void cancelBatch()}/>}{error&&<p role="alert" className="error">{error}</p>}<p className="help">原型不提供直接修改“已报销”状态。发票文件及关联将在后续阶段实现。</p></div><footer className="drawer-footer">{returnBatchId!==null&&<button disabled={saving} onClick={()=>openBatchDetail(returnBatchId)}>返回报销批次</button>}<button onClick={close}>返回列表</button></footer></div>}
   </dialog>
  </div>;

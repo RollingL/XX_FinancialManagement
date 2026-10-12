@@ -9,6 +9,7 @@ function amount(n){if(!Number.isSafeInteger(n)||n<=0)fail('金额须为安全范
 function total(values){const n=values.reduce((a,b)=>a+BigInt(b),0n);if(n>BigInt(Number.MAX_SAFE_INTEGER))fail('金额合计超出安全范围');return Number(n);}
 function text(s,max,required=true){if(typeof s!=='string'||s.length>max||(required&&!s.trim()))fail('文本字段无效');return s.trim();}
 function date(s){if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(s)||!Number.isFinite(Date.parse(s))||new Date(s).toISOString().slice(0,10)!==s)fail('日期无效');return s;}
+function batchEvents(state){const events=state.batchEvents===undefined?[]:state.batchEvents;if(!Array.isArray(events))fail('现有批次操作历史无效，请保留账本');return events;}
 function createLedger(root,service){
  fs.mkdirSync(root,{recursive:true,mode:0o700});
  const attachments=path.join(root,'attachments');fs.mkdirSync(attachments,{recursive:true,mode:0o700});
@@ -32,7 +33,8 @@ function createLedger(root,service){
   if(busy)fail('正在保存，请稍后再试');busy=true;
   let savedFile,committed=false;
   try{
-   if(!['expense','advance','batch','cancel'].includes(input.kind)||typeof input.requestId!=='string'||!/^[a-f0-9-]{36}$/.test(input.requestId))fail('保存请求无效');
+   if(!['expense','advance','batch','cancel','delete-batch'].includes(input.kind)||typeof input.requestId!=='string'||!/^[a-f0-9-]{36}$/.test(input.requestId))fail('保存请求无效');
+   if(input.kind==='delete-batch'&&(!Number.isSafeInteger(input.id)||input.id<=0))fail('批次编号无效');
    const digest=createHash('sha256').update(JSON.stringify(input)).digest('hex');
    const previous=db.prepare('SELECT digest FROM operations WHERE id=?').get(input.requestId);
    if(previous){if(previous.digest!==digest)fail('重复请求内容不一致，请重新打开面板');return read();}
@@ -78,9 +80,16 @@ function createLedger(root,service){
       if(a.amount>e.amount-paid)fail('分配超过当前待报销额，请刷新后重试');
      }
      const allocations=input.allocations.map(a=>({expenseId:a.expenseId,amount:a.amount}));total(allocations.map(a=>a.amount));
-     state.batches.push({id:Math.max(0,...state.batches.map(b=>b.id))+1,date:input.date,active:true,allocations});
-    }else{
+     const id=Math.max(0,...state.batches.map(b=>b.id),...batchEvents(state).map(event=>event.batchId))+1;
+     if(!Number.isSafeInteger(id))fail('批次编号超出安全范围');
+     state.batches.push({id,date:input.date,active:true,allocations});
+    }else if(input.kind==='cancel'){
      const batch=state.batches.find(b=>b.id===input.id);if(!batch)fail('批次不存在');batch.active=false;
+    }else{
+     const batch=state.batches.find(b=>b.id===input.id);if(!batch)fail('批次不存在');
+     const events=batchEvents(state),before=structuredClone(batch);
+     state.batches=state.batches.filter(item=>item.id!==batch.id);
+     state.batchEvents=[...events,{requestId:input.requestId,action:'delete-batch',at:createdAt,batchId:batch.id,before,after:null}];
     }
     if(attachment)db.prepare('INSERT INTO attachments VALUES(@id,@file,@sha256,@size,@mime)').run(attachment);
     db.prepare('UPDATE trial_state SET json=? WHERE id=1').run(JSON.stringify(state));

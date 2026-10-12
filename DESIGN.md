@@ -65,3 +65,7 @@ Mac 浏览器验证不等于 Electron 安装包或 Windows 验收。备份、迁
 最新八项反馈见 [QIANLAI_FEEDBACK_VALIDATION](docs/QIANLAI_FEEDBACK_VALIDATION.md)。实际记录区统一每页 6 条；报销内部可搜索及切换类别，跨页选择和金额独立于当前页。图片入口支持点击、键盘聚焦和拖拽。抽屉正文独立滚动，标题／操作底栏不遮挡记录控件。
 
 报销记录页沿用全账本三卡，主区显示批次列表，提供检索、月份／状态筛选及六条分页。明细面板保留原分配，可往返关联费用；撤销确认滚入可见区且默认聚焦“保留”，已撤销记录不再显示撤销按钮。批次／费用切换聚焦面板标题。实际验证见 [REIMBURSEMENT_RECORDS_VALIDATION](docs/REIMBURSEMENT_RECORDS_VALIDATION.md)。
+
+## 误填报销删除
+
+批次详情新增“删除记录”。确认区显示批次编号、全部分配笔数和金额（包含其他页），说明撤销核销、软件内不可恢复、资金不变；默认聚焦“暂不删除”。确认成功关闭详情，列表及待报销额度更新。没有回收站／恢复入口。见 [删除验证](docs/BATCH_DELETE_VALIDATION.md)。
