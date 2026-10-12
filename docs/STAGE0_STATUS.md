@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-更新：2026-10-12，私有 GitHub 上传准备。**仍处阶段 0；已有 Mac 本地试用保存闭环，阶段 0 尚未整体通过，Windows 全部未验收。** 本节是唯一当前状态；下方日期化记录只说明各历史时点，不自动代表新代码通过或用户仍认可旧视觉。
+更新：2026-10-12，私有 GitHub 源码基线。**仍处阶段 0；已有 Mac 本地试用保存闭环，阶段 0 尚未整体通过，Windows 全部未验收。** 本节是唯一当前状态；下方日期化记录只说明各历史时点，不自动代表新代码通过或用户仍认可旧视觉。
 
 业务权威：[需求规范 v1.1](../expense_bookkeeping_spec_v1.1.md)。入口：[README](../README.md)。计划：[IMPLEMENTATION_PLAN](IMPLEMENTATION_PLAN.md)。本项目与 iPhone 口袋账本分开。
 
@@ -19,7 +19,7 @@
 | 备份与迁移 | 仅新增 [具体方案与 B01–B16 验收清单](BACKUP_RECOVERY_PLAN.md)，功能未实现、清单未执行；本轮未复制、恢复或迁移真实数据，未声称已有可用备份 |
 | Windows 与分发 | x64 构建、干净安装、首次断网 OCR、升级、路径、DPI、输入法、时区及进程权限隔离未验证；签名及完整许可审计未完成 |
 | 视觉 | 用户本次明确反馈不满意，尚未提供新偏好；既有设计文件仅记录实现。建议先评审费用列表与录入两个关键页面，本轮不改 UI |
-| Git 与私有远程 | 已创建 [RollingL/XX_FinancialManagement](https://github.com/RollingL/XX_FinancialManagement)，API 确认 owner=RollingL、private=true、default_branch=main；83 个安全文件的首次提交／推送待完成。作者 Rolling. 与 GitHub noreply 仅配置本仓库，全局配置未改 |
+| Git 与私有远程 | 已创建 [RollingL/XX_FinancialManagement](https://github.com/RollingL/XX_FinancialManagement)，确认 owner=RollingL、private=true、default_branch=main；83 个安全文件已完成初始提交与首次推送，并核对本地／远程 SHA 一致。两份待确认测试仅留本地；作者 Rolling. 与 GitHub noreply 仅配置本仓库，全局配置未改 |
 
 操作细节见 [OCR_REVIEW_UI](OCR_REVIEW_UI.md)。现有资金逻辑符合“公司到账统一预支、支出共用资金池、报销不收付款”的口径，但尚不能通过 UI 录入预支，不能宣称完整资金业务已经实现。请求幂等不等于交易查重，同一截图再次确认仍可能新增费用。
 
@@ -42,7 +42,7 @@
 
 用户在基础整理后追加授权：建立 RollingL/XX_FinancialManagement 私有仓库、提交并上传安全审阅的代码与文档；使用现有登录，不创建／提取凭证，不扩展权限。真实账本、用户付款截图、附件、密钥、环境及构建产物不得上传，不部署。不修改业务或 UI，不实现备份，不操作或迁移真实账本；不自动执行历史计划或进入阶段 1。
 
-1. 完成精确清单的初始提交与私有上传，核对 owner、private、main 及远程 SHA；若同名仓库出现则先读历史，不覆盖不明内容。
+1. 后续每次同步先审查差异和隐私排除，再普通推送并核对远程 SHA；保留两份待确认测试在本地，另行明确合成数据替代方案，不把旧完整测试计数套到远程检出。
 2. 确认需要保留的试用数据入口、已有外部备份及指定备份位置，再单独排期合成账本备份／恢复演练；方案本身不是实施授权。
 3. 收集视觉不满意的具体点或参考方向，先评审布局、信息层级、配色及主要流程，再决定代码修改范围。见 [界面方向记录](PROTOTYPE_DIRECTION.md)。
 4. 固定 Windows 11 x64 测试机与具体版本；条件未具备前持续标记未验证。
@@ -55,6 +55,7 @@
 - 其余源码、文档与明确列出的合成素材继续审阅；本地证据、账本、用户截图、附件和凭证保持排除。后续同步结果以本页顶部及实际 Git 提交为准。
 - 安全暂存范围为 83 个文件，31 张图片均对应已记录的合成素材；排除的两份测试哈希与操作前一致，运行代码、UI 及需求规范未改。可访问账号仓库清单未发现同名仓库后创建成功，API 返回 owner=RollingL、private=true、default_branch=main。
 - 本轮实际命令：`node --test tests/model.test.ts tests/ocr-ui.test.ts tests/ocr-service.test.cjs tests/ledger-http.test.cjs`，15 项通过；`.venv-ocr/bin/python -B -m unittest discover -s tests -p 'test_ocr_fields.py'`，17 项通过。仅使用合成字段、临时目录与模拟 worker，无真实账本、真实 OCR 或真实图片操作。本机日志保存于 `evidence/stage0/github-upload-2026-10-12/`，不上传。
+- 初始源码提交：`d25c9f2dd211891e4d9c242e38f4cb6f081c3f5c`。首次普通推送到 `origin/main` 后，GitHub API 返回相同 SHA，并确认仓库属于 RollingL、保持 private、默认分支 main；随后仅补交本页完成记录。没有强推、部署或新增凭证，真实数据和两份排除测试不在提交及可达历史中。
 
 ## 历史：2026-10-12 本地版本与文档基础整理
 
