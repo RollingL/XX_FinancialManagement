@@ -10,3 +10,9 @@ test('A01：编辑可用额排除本批次旧占用',()=>{const s=demo();assert.
 test('零分配可省略，但非法零格式不能绕过精度校验',()=>{assert.equal(rowCents('0.00'),0);assert.equal(rowCents(''),0);for(const value of ['0.000','-0','0e0'])assert.throws(()=>rowCents(value));});
 
 test('大金额格式化仍保持每一分，含负一分',()=>{assert.equal(decimal(Number.MAX_SAFE_INTEGER),'90071992547409.91');assert.equal(money(Number.MAX_SAFE_INTEGER),'90,071,992,547,409.91');assert.equal(money(-1),'-0.01');assert.equal(cents(decimal(Number.MAX_SAFE_INTEGER)),Number.MAX_SAFE_INTEGER);});
+
+test('负余额继续支出的预览精确到分，合计越界拒绝格式化',()=>{
+ const current=-25;
+ assert.equal(money(sum([current,-cents('0.01')])),'-0.26');
+ assert.throws(()=>sum([current,-cents('90071992547409.91')]),/安全范围/);
+});

@@ -1,124 +1,83 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-12T03:24:03.009261+00:00",
-  "title": "Design System: 本地报销台账",
-  "extensions": {
-    "shadows": [
-      {
-        "name": "drawer",
-        "value": "-12px 0 45px #1e37221c",
-        "purpose": "右侧覆盖面板与背景分离。"
-      }
-    ],
-    "motion": [
-      {
-        "name": "drawer-enter",
-        "value": "180ms ease-out; translateX(20px) to translateX(0); opacity .7 to 1",
-        "purpose": "仅 prefers-reduced-motion: no-preference 时开启。"
-      }
-    ],
-    "breakpoints": [
-      {
-        "name": "compact-desktop",
-        "value": "1100px"
-      },
-      {
-        "name": "small-window",
-        "value": "760px"
-      }
+  "generatedAt": "2026-10-12",
+  "title": "小徐同学 · 雾紫白 v2",
+  "reference": {
+    "file": "A-雾紫白-低饱和-v2.png",
+    "sha256": "8341677a481547f4758d608dea54044ea2be1e20f627ae10786f97606cb35ffc",
+    "dimensions": [
+      1586,
+      992
     ]
+  },
+  "colors": {
+    "accent": "#7562ad",
+    "accentHover": "#625091",
+    "text": "#242236",
+    "muted": "#686579",
+    "background": "#f8f8fc",
+    "surface": "#fffefd",
+    "soft": "#f1edf9",
+    "line": "#e8e5ef",
+    "navActive": "#eee8f8",
+    "navText": "#4d387c",
+    "focus": "#8870c0",
+    "unpaid": "#a03c52",
+    "partial": "#995117",
+    "done": "#287456"
+  },
+  "typography": {
+    "fontFamily": "-apple-system, BlinkMacSystemFont, Segoe UI, Microsoft YaHei, PingFang SC, sans-serif",
+    "heading": 29,
+    "section": 20,
+    "body": 14,
+    "summaryAmount": [
+      27,
+      32,
+      36
+    ]
+  },
+  "radii": {
+    "card": 17,
+    "control": 11,
+    "input": 10
+  },
+  "extensions": {
+    "breakpoints": [
+      1450,
+      1250,
+      1000,
+      700
+    ],
+    "motion": "180ms drawer enter only when prefers-reduced-motion: no-preference"
   },
   "components": [
     {
       "name": "主按钮",
       "kind": "button",
-      "refersTo": "button-primary",
-      "description": "确认当前面板操作。",
-      "html": "<button class=\"ds-primary\">确认并保存费用</button>",
-      "css": ".ds-primary{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif;font-size:14px;cursor:pointer;border:1px solid #ced8d2;border-radius:6px;padding:9px 14px;min-height:38px;background:var(--accent,#216653);color:white;border-color:var(--accent,#216653);font-weight:550}.ds-primary:hover{background:#194f40}.ds-primary:focus-visible{outline:3px solid #89b5a5;outline-offset:2px;}.ds-primary:disabled{cursor:not-allowed;background:#ecf0ed;color:#737d77;border-color:#dce3df}"
+      "html": "<button class=\"primary\">新增费用</button>",
+      "css": ".primary{background:#7562ad;color:white;border:1px solid #7562ad;border-radius:11px;padding:10px 15px}.primary:hover{background:#625091}.primary:focus-visible{outline:3px solid #8870c0;outline-offset:3px}"
     },
     {
-      "name": "次按钮",
-      "kind": "button",
-      "refersTo": "button-secondary",
-      "description": "取消或返回。",
-      "html": "<button class=\"ds-secondary\">取消</button>",
-      "css": ".ds-secondary{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif;font-size:14px;cursor:pointer;border:1px solid #ced8d2;border-radius:6px;padding:9px 14px;min-height:38px;background:#fff;color:#24332f}.ds-secondary:hover{background:#f0f5f2}.ds-secondary:focus-visible{outline:3px solid #89b5a5;outline-offset:2px;}"
-    },
-    {
-      "name": "输入框",
-      "kind": "input",
-      "refersTo": "input",
-      "description": "商户或采购摘要。",
-      "html": "<input class=\"ds-input\" aria-label=\"商户\" placeholder=\"例如：青禾餐厅\">",
-      "css": ".ds-input{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif;font-size:14px;border:1px solid #c6d1ca;border-radius:5px;background:white;color:#24332f;padding:9px 11px;min-height:38px;max-width:100%;caret-color:var(--accent,#216653)}.ds-input::placeholder{color:#727e77}.ds-input:focus-visible{outline:3px solid #89b5a5;outline-offset:2px;}"
-    },
-    {
-      "name": "导航",
+      "name": "导航选中",
       "kind": "nav",
-      "refersTo": "navigation-active",
-      "description": "当前栏目与数量。",
-      "html": "<nav class=\"ds-nav\" aria-label=\"示例导航\"><button class=\"ds-active\">全部费用 <span>6</span></button><button>办公费用 <span>3</span></button></nav>",
-      "css": ".ds-nav{display:grid;gap:5px;width:180px}.ds-nav button{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif;font-size:14px;cursor:pointer;border:1px solid #ced8d2;border-radius:6px;padding:9px 14px;min-height:38px;display:flex;justify-content:space-between;padding:12px;border:0;background:transparent;color:#24332f;text-align:left}.ds-nav button.ds-active{background:#dce9e1;color:#194f3d;font-weight:650}.ds-nav span{font-size:12px;font-weight:400}.ds-nav button:focus-visible{outline:3px solid #89b5a5;outline-offset:2px;}"
+      "html": "<button aria-current=\"page\" class=\"active\">总览</button>",
+      "css": ".active{background:#eee8f8;color:#4d387c}"
     },
     {
-      "name": "报销状态",
+      "name": "费用进度",
       "kind": "chip",
-      "refersTo": "status",
-      "description": "只读的分配状态。",
-      "html": "<span class=\"ds-status\">未报销</span> <span class=\"ds-status ds-partial\">部分报销</span> <span class=\"ds-status ds-done\">已报销</span>",
-      "css": ".ds-status{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif;font-size:14px;font-size:11px;background:#eef1ef;color:#59665e;padding:4px 7px;border-radius:4px;white-space:nowrap}.ds-partial{background:#fbf0da;color:#7f5816}.ds-done{background:#e7f3ea;color:#2c6140}"
-    },
-    {
-      "name": "工作区",
-      "kind": "card",
-      "refersTo": "workspace",
-      "description": "表格的白色边界。",
-      "html": "<section class=\"ds-workspace\"><div class=\"ds-filters\"><input aria-label=\"搜索\" placeholder=\"搜索商户、采购摘要或编号\"></div></section>",
-      "css": ".ds-workspace{background:white;border:1px solid var(--line,#dce3df);border-radius:8px;overflow:hidden}.ds-filters{padding:18px;display:flex;gap:10px}.ds-filters input{font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif;font-size:14px;font-size:12px;border:1px solid #c6d1ca;border-radius:5px;background:white;color:#24332f;padding:9px 11px;min-height:38px;max-width:100%}.ds-filters input:focus-visible{outline:3px solid #89b5a5;outline-offset:2px;}"
-    },
-    {
-      "name": "费用截图识别提示",
-      "kind": "custom",
-      "description": "普通 480px 录入面板中，上传与原图位于费用字段上方；确定值自动填写，其余手工补充。确认保存才登记费用并保留截图，详情可查看附件。",
-      "html": "<section class=\"ds-screenshot\" aria-label=\"支付截图\"><label class=\"ds-field\">上传支付截图（可选）<input type=\"file\" accept=\"image/png,image/jpeg\"></label><p class=\"ds-help\">本机离线识别金额、日期和商户，可手动修正。支持 PNG / JPEG，最大 20 MiB。</p><p class=\"ds-help\" role=\"status\">已填写能够确定的字段，请对照原图核对；留空项请手动补充。保存时才会登记费用并保留截图。</p></section>",
-      "css": ".ds-screenshot{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",\"Microsoft YaHei\",\"PingFang SC\",sans-serif;color:#24332f;border-bottom:1px solid var(--line,#dce3df);padding-bottom:20px}.ds-field{display:flex;flex-direction:column;gap:9px;margin-bottom:22px;font-size:12px;font-weight:550}.ds-field input{font:inherit;font-size:13px;font-weight:400;border:1px solid #c6d1ca;border-radius:5px;background:white;color:#24332f;padding:10px 0;min-height:38px;width:100%;max-width:100%}.ds-field input:focus-visible{outline:3px solid #89b5a5;outline-offset:2px}.ds-help{font-size:12px;color:var(--muted,#626e69);line-height:1.8}"
+      "html": "<span class=\"status partial\">部分报销</span>",
+      "css": ".status{color:#a03c52}.partial{color:#995117}.done{color:#287456}"
     }
   ],
   "narrative": {
-    "northStar": "清楚的本地工作账本",
-    "overview": "浅色本地工具界面，以清楚的中文、横向金额比较和右侧操作面板组织工作。低饱和绿色标识主要操作，白色工作区与浅灰绿色背景分层，状态同时使用文字。\n\n本记录从阶段 0 原型代码提取，尚不代表完整桌面产品的视觉验收。系统中文字体是用户明确要求，保留为工具界面字体，不建立装饰性展示字体或新品牌。",
-    "keyCharacteristics": [
-      "列表优先，金额右对齐并使用等宽数字。",
-      "右侧面板承载录入、详情和分配，减少页面跳转。",
-      "紧凑表格配合可见焦点与文字状态。"
-    ],
+    "overview": "浅侧栏、三张真实数据摘要卡、费用列表及待处理区；暖白与雾紫为主，主操作适度加深。",
     "rules": [
-      {
-        "name": "Text State",
-        "body": "状态以文字表达，颜色仅帮助区分。",
-        "section": "colors"
-      },
-      {
-        "name": "Comparable Amounts",
-        "body": "金额右对齐并使用 tabular-nums；金额角色不等同于装饰标题。",
-        "section": "typography"
-      },
-      {
-        "name": "Flat Workspace",
-        "body": "工作区依靠底色和边框分层，阴影仅用于覆盖主界面的右侧面板。",
-        "section": "elevation"
-      }
-    ],
-    "dos": [
-      "Do 使用已确认的系统中文字体和本地资源。",
-      "Do 保持金额右对齐、文字状态及可见键盘焦点。",
-      "Do 在窄窗口保持表格横向滚动和面板视口宽度约束。"
-    ],
-    "donts": [
-      "Don't 以手动状态标签替代真实报销分配。",
-      "Don't 为该工具增加装饰性大标题、远程字体或无关图库素材。",
-      "Don't 把原型截图记录当作 Windows 字体、缩放或桌面验收。"
+      "报销不影响资金余额",
+      "未完成业务明确禁用",
+      "只使用本地字体和 SVG",
+      "系统字体与安装包效果仍需 Windows 验证"
     ]
   }
 }
