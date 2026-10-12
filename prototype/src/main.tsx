@@ -76,7 +76,7 @@ function App(){
 
  return <div className="app">
   <aside className="sidebar">
-   <div className="brand">小徐同学<small>财务管理系统</small></div>
+   <div className="brand">钱来<small>财务管理系统</small></div>
    <nav aria-label="主导航">{(['全部费用','接待','办公'] as const).map(n=><button key={n} aria-current={category===n?'page':undefined} className={category===n?'active':''} onClick={()=>{setCategory(n);setSelected([]);}}><Icon name={n==='全部费用'?'home':n==='接待'?'meal':'work'}/><span>{n==='全部费用'?'总览':`${n}费用`}</span></button>)}
     <button disabled><Icon name="receipt"/><span>报销记录</span><small>规划中</small></button><button aria-current={isAdvances?'page':undefined} className={isAdvances?'active':''} onClick={()=>{setCategory('预支');setSelected([]);}}><Icon name="wallet"/><span>预支</span></button><button disabled><Icon name="receipt"/><span>发票</span><small>未开放</small></button>
    </nav>
@@ -85,9 +85,9 @@ function App(){
   <main>
    <header className="page-header"><div><h1>{isOverview?'你好，小徐同学':isAdvances?'预支到账':`${category}费用`}</h1><p><time dateTime={currentDay}>{localDateLabel(currentDay)}</time></p></div><div className="header-actions">{isAdvances?<button className="primary" disabled={!loaded} onClick={openAdvance}><Icon name="plus"/>登记预支到账</button>:<><button className="primary" disabled={!loaded} onClick={()=>openNew()}><Icon name="plus"/>新增费用</button><button disabled={!loaded} onClick={()=>isOverview?openReimburse():openNew(true)}><Icon name={isOverview?'receipt':'scan'}/>{isOverview?'登记报销':'截图录入'}</button></>}</div></header>
    <section className="summary" aria-label="全账本统计">
-    <div className="summary-card balance-card"><div className="metric"><span className="icon-disc"><Icon name="wallet"/></span><div><h2>预支资金余额 <small>全账本</small></h2><strong>{bal<0?'−':''}<span className="currency">¥</span>{money(Math.abs(bal))}</strong><p>{bal<0?`本人垫付 ¥${money(-bal)}`:bal===0?'从零起账，记录每一笔真实支出':'尚有可用业务资金'}</p></div></div><div className="card-bottom"><span>累计预支 <b>¥{money(sum(advances))}</b></span><button className="link" disabled={!loaded} onClick={openAdvance}>登记到账</button></div></div>
+    <div className="summary-card balance-card"><div className="metric"><span className="icon-disc"><Icon name="wallet"/></span><div><h2>预支资金余额 <small>全账本</small></h2><strong>{bal<0?'−':''}<span className="currency">¥</span>{money(Math.abs(bal))}</strong><p>{bal<0?`本人垫付 ¥${money(-bal)}`:bal===0?'从零起账，记录每一笔真实支出':'尚有可用业务资金'}</p></div></div></div>
     <div className="summary-card"><div className="metric"><span className="icon-disc mint"><Icon name="chart"/></span><div><h2>费用支出 <small>全账本</small></h2><strong><span className="currency">¥</span>{money(spending.total)}</strong><dl className="category-totals">{(['接待','办公'] as const).map(c=><div key={c}><dt>{c}</dt><dd>¥{money(spending.byCategory[c])}</dd></div>)}</dl></div></div></div>
-    <div className="summary-card"><div className="metric"><span className="icon-disc peach"><Icon name="clock"/></span><div><h2>待报销 <small>报账进度</small></h2><strong><span className="currency">¥</span>{money(outstanding)}</strong><p>{pending.length} 笔费用待登记</p></div></div><div className="card-bottom"><span>已报销 <b>¥{money(sum(expenses.map(e=>paid(e.id,batches))))}</b></span></div></div>
+    <div className="summary-card"><div className="metric"><span className="icon-disc peach"><Icon name="clock"/></span><div><h2>待报销 <small>报账进度</small></h2><strong><span className="currency">¥</span>{money(outstanding)}</strong><p>{pending.length} 笔费用待登记</p></div></div></div>
    </section>
    {notice&&<div className="notice" role="status">{notice}<button aria-label="关闭提示" onClick={()=>setNotice('')}>关闭</button></div>}
    {isAdvances?<section className="workspace advance-workspace" aria-label="预支到账记录">

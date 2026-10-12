@@ -21,7 +21,7 @@ app.whenReady().then(async()=>{
    console.log(JSON.stringify(report,null,2));app.exit(0);
   }catch(error){console.error(error);app.exit(1);}finally{fs.rmSync(dir,{recursive:true,force:true});}return;
  }
- const win=new BrowserWindow({width:1400,height:920,minWidth:800,minHeight:600,title:'本地报销台账 · 阶段 0',webPreferences:{preload:path.join(__dirname,'preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false}});
+ const win=new BrowserWindow({width:1400,height:920,minWidth:800,minHeight:600,title:'钱来 财务管理系统 · 本地试用',webPreferences:{preload:path.join(__dirname,'preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false}});
  const service=createOcrService(app.isPackaged?process.resourcesPath:undefined);
  const ledger=require('./trial-ledger.cjs').createLedger(process.env.XX_FINANCE_DATA_DIR||path.join(app.getPath('userData'),'stage0-trial'),service);
  const requests=new Map();
