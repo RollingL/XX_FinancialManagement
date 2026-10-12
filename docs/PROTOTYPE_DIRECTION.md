@@ -2,7 +2,7 @@
 
 2026-10-12 用户在雾紫白 v2 概念图下批准“按这一版再加深饱和度开始执行”。参考本地 `A-雾紫白-低饱和-v2.png`，1586×992；没有使用后续 Library v3。浅侧栏、三张摘要卡、列表及右侧待处理区已经落实，主按钮与选中态适度加深紫色。
 
-实现记录见 [DESIGN](../DESIGN.md)，本轮实际测试见 [UI_V2_VALIDATION](UI_V2_VALIDATION.md)，当前业务边界见 [STAGE0_STATUS](STAGE0_STATUS.md#当前状态)。本轮不推送、不改数据库结构或真实账目；未开放的预支、发票、备份不因概念图出现按钮而实现。
+实现记录见 [DESIGN](../DESIGN.md)，本轮实际测试见 [UI_V2_VALIDATION](UI_V2_VALIDATION.md)，当前业务边界见 [STAGE0_STATUS](STAGE0_STATUS.md#当前状态)。本轮不推送、不改数据库结构或真实账目；预支新增与查看后来获得单独授权，见 [ADVANCE_VALIDATION](ADVANCE_VALIDATION.md)；发票、备份仍未开放。
 
 以下是此前方向及反馈的历史记录，不再表示当前偏好尚未提供。
 

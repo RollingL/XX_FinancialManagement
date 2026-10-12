@@ -32,7 +32,7 @@ function createLedger(root,service){
   if(busy)fail('正在保存，请稍后再试');busy=true;
   let savedFile,committed=false;
   try{
-   if(!['expense','batch','cancel'].includes(input.kind)||typeof input.requestId!=='string'||!/^[a-f0-9-]{36}$/.test(input.requestId))fail('保存请求无效');
+   if(!['expense','advance','batch','cancel'].includes(input.kind)||typeof input.requestId!=='string'||!/^[a-f0-9-]{36}$/.test(input.requestId))fail('保存请求无效');
    const digest=createHash('sha256').update(JSON.stringify(input)).digest('hex');
    const previous=db.prepare('SELECT digest FROM operations WHERE id=?').get(input.requestId);
    if(previous){if(previous.digest!==digest)fail('重复请求内容不一致，请重新打开面板');return read();}
@@ -51,8 +51,18 @@ function createLedger(root,service){
     }
    }
    const result=db.transaction(()=>{
-    const state=read();
-    if(input.kind==='expense'){
+    const state=read(),createdAt=new Date().toISOString();
+    if(input.kind==='advance'){
+     const a=input.advance;if(!a||typeof a!=='object')fail('预支到账记录无效');
+     const value=amount(a.amount),day=date(a.date),note=text(a.note??'',500,false);
+     if(!Array.isArray(state.advances))fail('现有预支数据无效，请保留账本');
+     total([...state.advances.map(amount),value]);
+     const details=state.advanceDetails??{};
+     if(typeof details!=='object'||Array.isArray(details)||Object.hasOwn(details,state.advances.length))fail('现有预支记录信息无效，请保留账本');
+     // Amounts remain the single source of funds. Legacy entries are never rewritten or dated.
+     state.advanceDetails={...details,[state.advances.length]:{date:day,note,createdAt}};
+     state.advances.push(value);
+    }else if(input.kind==='expense'){
      const e=input.expense;total([...state.expenses.map(e=>e.amount),e.amount]);
      const id=Math.max(0,...state.expenses.map(e=>e.id))+1;
      state.expenses.push({id,category:e.category,date:e.date,merchant:e.merchant.trim(),amount:e.amount,note:e.note.trim(),invoice:0,...(attachment?{attachmentId:attachment.id}:{})});
@@ -71,7 +81,7 @@ function createLedger(root,service){
      const batch=state.batches.find(b=>b.id===input.id);if(!batch)fail('批次不存在');batch.active=false;
     }
     db.prepare('UPDATE trial_state SET json=? WHERE id=1').run(JSON.stringify(state));
-    db.prepare('INSERT INTO operations VALUES(?,?,?,?)').run(input.requestId,digest,input.kind,new Date().toISOString());
+    db.prepare('INSERT INTO operations VALUES(?,?,?,?)').run(input.requestId,digest,input.kind,createdAt);
     return state;
    }).immediate();
    committed=true;return result;
