@@ -10,6 +10,8 @@
 
 最新删除功能试用地址为 http://127.0.0.1:5193/ ，从“报销记录”进入批次详情再选择“删除记录”，明确确认后不可在软件恢复。仅含新合成样例；重启脚本为 `evidence/stage0/batch-delete-2026-10-12/preview/start.sh`，不进入 Git。原 5173／5190／5191／5192 数据目录保持原位；本轮检查时这些旧端口未监听，没有重启。各入口不自动同步。见 [删除验证](docs/BATCH_DELETE_VALIDATION.md)。
 
+最新备份与清空预览为 http://127.0.0.1:5195/ ，从侧栏“备份”进入。仅新 managed 合成账本支持手动完整备份、准确输入“清空当前账本”后清空；原入口不接管、不迁移。恢复仅通过本地命令到新目录，不能覆盖。5195 测试账本当前为空，重启脚本 `evidence/stage0/reset-ledger-2026-10-12/preview/start.sh`；5193／5194 保留。见 [完整备份验证](docs/MANAGED_BACKUP_VALIDATION.md)和[清空验证](docs/LEDGER_RESET_VALIDATION.md)。
+
 - [业务需求与验收规范（业务权威）](expense_bookkeeping_spec_v1.1.md)
 - [实施方案、取舍与分阶段计划](docs/IMPLEMENTATION_PLAN.md)
 - [项目约束](AGENTS.md)
@@ -17,7 +19,7 @@
 - [Windows 验证清单](docs/WINDOWS_VALIDATION.md)
 - [2026-10-12 离线 OCR 金额字段验证](docs/OCR_FIELD_VALIDATION.md)
 - [截图上传与核对说明](docs/OCR_REVIEW_UI.md)
-- [账本与附件备份恢复方案及验收清单（仅方案）](docs/BACKUP_RECOVERY_PLAN.md)
+- [账本与附件备份恢复范围及验收清单](docs/BACKUP_RECOVERY_PLAN.md)
 
 ## 本地版本与数据边界
 
@@ -31,7 +33,7 @@ Git 只记录源码、锁文件、文档和明确列出的合成样本，不是�
 
 ## 文档维护约定
 
-需求含义以业务规范为准；实施方案记录计划与取舍；STAGE0_STATUS 顶部记录唯一当前状态，下面按日期保留历史与验证证据。专项文档只说明相应流程、测试范围或待实现方案，历史通过结果不自动延伸到新代码或其他操作系统。视觉实现见 [DESIGN](DESIGN.md)：2026-10-12 已按用户批准的本地雾紫白 v2 完成改版；实际 Mac 浏览器检查见 [UI_V2_VALIDATION](docs/UI_V2_VALIDATION.md)。用户随后授权正常推送功能分支，已同步至 `23041f9`；之后新增的报销记录模块仅本地提交，未再次推送、合并或部署。
+需求含义以业务规范为准；实施方案记录计划与取舍；STAGE0_STATUS 顶部记录唯一当前状态，下面按日期保留历史与验证证据。专项文档只说明相应流程、测试范围或待实现方案，历史通过结果不自动延伸到新代码或其他操作系统。视觉实现见 [DESIGN](DESIGN.md)：2026-10-12 已按用户批准的本地雾紫白 v2 完成改版；实际 Mac 浏览器检查见 [UI_V2_VALIDATION](docs/UI_V2_VALIDATION.md)。用户随后授权正常推送功能分支，已同步至 `23041f9`；之后报销记录、误填删除、完整备份与清空模块均仅本地交付，未再次推送、合并或部署。
 
 ## 原型
 
@@ -91,7 +93,7 @@ Windows 必须在 Windows x64 上重新构建和实测，见验证清单。当�
 
 浏览器开发入口需要项目 .venv-ocr；本机已有。Mac 应用使用随包辅助程序，不要求安装 Python。识别可取消，有 90 秒超时；失败可手填，损坏图片不能作为附件保存。PDF、批量导入、剪贴板识别未接入。
 
-开发浏览器和 `npm start` 使用不同的试用数据目录，不自动同步。浏览器：项目 `.local-data/`；Electron：`app.getPath('userData')/stage0-trial/`。目录包含 SQLite 和 `attachments/`，不纳入应用包。尚未实现正式备份/恢复与迁移，请勿作为唯一财务存档。详见 [录入与附件说明](docs/OCR_REVIEW_UI.md)。
+开发浏览器和 `npm start` 使用不同的试用数据目录，不自动同步。浏览器：项目 `.local-data/`；Electron：`app.getPath('userData')/stage0-trial/`。目录包含 SQLite 和 `attachments/`，不纳入应用包。旧入口尚未接入本轮 managed 完整备份／新目录恢复；正式迁移和覆盖恢复仍未实现，请勿作为唯一财务存档。详见 [录入与附件说明](docs/OCR_REVIEW_UI.md)。
 
 预支最小扩展的兼容策略和定向验证见 [ADVANCE_VALIDATION](docs/ADVANCE_VALIDATION.md)。旧金额保留，缺失日期显示“日期未记录”。若开发服务在代码更新前已启动，需由使用者重新启动服务以加载新的业务命令；本轮未重启原有服务。
 

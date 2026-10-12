@@ -10,7 +10,14 @@ function total(values){const n=values.reduce((a,b)=>a+BigInt(b),0n);if(n>BigInt(
 function text(s,max,required=true){if(typeof s!=='string'||s.length>max||(required&&!s.trim()))fail('文本字段无效');return s.trim();}
 function date(s){if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(s)||!Number.isFinite(Date.parse(s))||new Date(s).toISOString().slice(0,10)!==s)fail('日期无效');return s;}
 function batchEvents(state){const events=state.batchEvents===undefined?[]:state.batchEvents;if(!Array.isArray(events))fail('现有批次操作历史无效，请保留账本');return events;}
-function createLedger(root,service){
+function createLedger(root,service,managedToken){
+ if(fs.lstatSync(path.join(root,'managed-ledger.json'),{throwIfNoEntry:false})){
+  const lock=path.join(root,'.writer-lock'),ownerFile=path.join(lock,'owner.json');
+  try{
+   const lockStat=fs.lstatSync(lock),ownerStat=fs.lstatSync(ownerFile);
+   if(typeof managedToken!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(managedToken)||!lockStat.isDirectory()||lockStat.isSymbolicLink()||!ownerStat.isFile()||ownerStat.isSymbolicLink()||ownerStat.size>4096||JSON.parse(fs.readFileSync(ownerFile,'utf8')).token!==managedToken)fail('受管账本只能通过持锁入口打开');
+  }catch{fail('受管账本只能通过持锁入口打开，未修改账本');}
+ }
  fs.mkdirSync(root,{recursive:true,mode:0o700});
  const attachments=path.join(root,'attachments');fs.mkdirSync(attachments,{recursive:true,mode:0o700});
  const db=new Database(path.join(root,'trial.sqlite'));db.pragma('journal_mode = WAL');db.pragma('synchronous = FULL');
@@ -22,6 +29,7 @@ function createLedger(root,service){
  let busy=false;
  async function command(input){
   if(!input||typeof input!=='object')fail('请求无效');
+  if(input.kind==='maintenance-info')return {supported:false,backupConfigured:false,canReset:false};
   if(input.kind==='read')return read();
   if(input.kind==='attachment'){
    if(typeof input.id!=='string')fail('附件编号无效');
