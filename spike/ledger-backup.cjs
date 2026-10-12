@@ -108,8 +108,12 @@ function inspectDatabase(file){
   const expenses=new Map(),batchIds=new Set(),used=new Map(),references=new Set(),attachmentIds=new Set(),attachmentNames=new Set();
   let expenseTotal=0n,advanceTotal=0n,reimbursed=0n,allocationCount=0;
   const addReference=id=>{if(id!==undefined){requireThat(typeof id==='string'&&UUID.test(id),'附件引用无效');references.add(id);}};
+  function validateExpense(e){
+   requireThat(object(e)&&positive(e.id)&&positive(e.amount)&&validDate(e.date)&&['接待','办公'].includes(e.category)&&safeText(e.merchant,100,true)&&safeText(e.note,500)&&Number.isSafeInteger(e.invoice)&&e.invoice>=0&&e.invoice<=e.amount,'费用记录无效');
+   if(e.attachmentId!==undefined)requireThat(typeof e.attachmentId==='string'&&UUID.test(e.attachmentId),'费用附件标识无效');
+  }
   for(const e of state.expenses){
-   requireThat(object(e)&&positive(e.id)&&!expenses.has(e.id)&&positive(e.amount)&&validDate(e.date)&&['接待','办公'].includes(e.category)&&safeText(e.merchant,100,true)&&safeText(e.note,500)&&Number.isSafeInteger(e.invoice)&&e.invoice>=0&&e.invoice<=e.amount,'费用记录无效');
+   validateExpense(e);requireThat(!expenses.has(e.id),'重复费用编号');
    expenses.set(e.id,e);expenseTotal+=BigInt(e.amount);addReference(e.attachmentId);
   }
   for(const amount of state.advances){requireThat(positive(amount),'预支金额无效');advanceTotal+=BigInt(amount);}
@@ -130,7 +134,25 @@ function inspectDatabase(file){
    if(batch.active)for(const a of batch.allocations){const value=(used.get(a.expenseId)||0n)+BigInt(a.amount);requireThat(value<=BigInt(expenses.get(a.expenseId).amount),'有效分配超过费用金额');used.set(a.expenseId,value);reimbursed+=BigInt(a.amount);}
   }
   const operationMap=new Map();
-  for(const op of operations){requireThat(UUID.test(op.id)&&HASH.test(op.digest)&&['expense','advance','batch','cancel','delete-batch'].includes(op.kind)&&timestamp(op.created_at),'请求操作记录无效');operationMap.set(op.id,op);}
+  for(const op of operations){requireThat(UUID.test(op.id)&&HASH.test(op.digest)&&['expense','advance','batch','cancel','delete-batch','correct-expense'].includes(op.kind)&&timestamp(op.created_at),'请求操作记录无效');operationMap.set(op.id,op);}
+  const corrections=state.expenseEvents===undefined?[]:state.expenseEvents;requireThat(Array.isArray(corrections),'费用纠错审计无效');
+  const correctionRequests=new Set(),latestCorrection=new Map(),editable=new Set(['category','date','merchant','amount','note']);
+  const stableFields=expense=>Object.fromEntries(Object.entries(expense).filter(([key])=>!editable.has(key)));
+  for(const event of corrections){
+   requireThat(object(event)&&event.action==='correct-expense'&&typeof event.requestId==='string'&&UUID.test(event.requestId)&&!correctionRequests.has(event.requestId)&&timestamp(event.at)&&positive(event.expenseId)&&expenses.has(event.expenseId)&&positive(event.revision),'费用纠错审计字段无效');
+   same(Object.keys(event).sort(),['requestId','action','at','expenseId','revision','before','after'].sort(),'费用纠错审计包含未知字段');
+   validateExpense(event.before);validateExpense(event.after);
+   requireThat(event.before.id===event.expenseId&&event.after.id===event.expenseId&&event.before.invoice===0,'费用纠错审计编号或票额无效');
+   same(stableFields(event.before),stableFields(event.after),'费用纠错改变了编号、附件、票额或旧元数据');
+   requireThat(!isDeepStrictEqual(event.before,event.after),'费用纠错前后没有变化');
+   const previous=latestCorrection.get(event.expenseId);
+   requireThat(event.revision===(previous?previous.revision+1:1),'费用纠错修订顺序无效');
+   if(previous)same(event.before,previous.after,'费用纠错前后审计链不连续');
+   const op=operationMap.get(event.requestId);requireThat(op&&op.kind==='correct-expense'&&op.created_at===event.at,'费用纠错审计缺少对应请求操作');
+   correctionRequests.add(event.requestId);latestCorrection.set(event.expenseId,event);
+  }
+  for(const [id,event] of latestCorrection)same(event.after,expenses.get(id),'费用纠错最后修订与当前费用不一致');
+  for(const op of operations)if(op.kind==='correct-expense')requireThat(correctionRequests.has(op.id),'费用纠错请求缺少审计事实');
   const events=state.batchEvents===undefined?[]:state.batchEvents;requireThat(Array.isArray(events),'批次删除审计无效');const deletedIds=new Set(),eventRequests=new Set();let deletedAllocationCount=0;
   for(const event of events){
    requireThat(object(event)&&event.action==='delete-batch'&&positive(event.batchId)&&!batchIds.has(event.batchId)&&!deletedIds.has(event.batchId)&&UUID.test(event.requestId)&&!eventRequests.has(event.requestId)&&timestamp(event.at)&&event.after===null,'批次删除审计无效');

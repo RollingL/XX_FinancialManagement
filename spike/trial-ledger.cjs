@@ -2,6 +2,7 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const {createHash,randomUUID}=require('node:crypto');
+const {isDeepStrictEqual}=require('node:util');
 const Database=require('better-sqlite3');
 const {imageSuffix,MAX_BYTES}=require('./ocr-service.cjs');
 const fail=message=>{throw Object.assign(Error(message),{status:422});};
@@ -41,7 +42,7 @@ function createLedger(root,service,managedToken){
   if(busy)fail('正在保存，请稍后再试');busy=true;
   let savedFile,committed=false;
   try{
-   if(!['expense','advance','batch','cancel','delete-batch'].includes(input.kind)||typeof input.requestId!=='string'||!/^[a-f0-9-]{36}$/.test(input.requestId))fail('保存请求无效');
+   if(!['expense','correct-expense','advance','batch','cancel','delete-batch'].includes(input.kind)||typeof input.requestId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(input.requestId))fail('保存请求无效');
    if(input.kind==='delete-batch'&&(!Number.isSafeInteger(input.id)||input.id<=0))fail('批次编号无效');
    const digest=createHash('sha256').update(JSON.stringify(input)).digest('hex');
    const previous=db.prepare('SELECT digest FROM operations WHERE id=?').get(input.requestId);
@@ -79,6 +80,20 @@ function createLedger(root,service,managedToken){
      const e=input.expense;total([...state.expenses.map(e=>e.amount),e.amount]);
      const id=Math.max(0,...state.expenses.map(e=>e.id))+1;
      state.expenses.push({id,category:e.category,date:e.date,merchant:e.merchant.trim(),amount:e.amount,note:e.note.trim(),invoice:0,...(attachment?{attachmentId:attachment.id}:{})});
+    }else if(input.kind==='correct-expense'){
+     if(Object.keys(input).sort().join(',')!=='expected,expectedRevision,expense,id,kind,requestId'||!Number.isSafeInteger(input.id)||input.id<=0||!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<0)fail('费用纠错请求无效');
+     const index=state.expenses.findIndex(e=>e.id===input.id);if(index<0)fail('费用不存在');
+     const current=state.expenses[index],events=state.expenseEvents===undefined?[]:state.expenseEvents;if(!Array.isArray(events))fail('现有费用纠错历史无效，请保留账本');
+     const revision=events.filter(event=>event.expenseId===input.id).length;
+     if(revision!==input.expectedRevision||!isDeepStrictEqual(current,input.expected))fail('费用已变化，请刷新后重新核对');
+     if(current.invoice!==0)fail('已有票额的费用暂不支持纠错');
+     if([...state.batches,...batchEvents(state).map(event=>event.before)].some(batch=>batch.allocations.some(row=>row.expenseId===input.id)))fail('已有报销历史的费用暂不支持纠错');
+     const e=input.expense;if(!e||typeof e!=='object'||Array.isArray(e)||Object.keys(e).sort().join(',')!=='amount,category,date,merchant,note'||!['接待','办公'].includes(e.category))fail('费用纠错字段无效，不能替换附件或添加其他业务字段');
+     const after={...current,category:e.category,date:date(e.date),merchant:text(e.merchant,100),amount:amount(e.amount),note:text(e.note,500,false)};
+     total(state.expenses.map((expense,position)=>position===index?after.amount:expense.amount));
+     if(isDeepStrictEqual(current,after))fail('费用内容没有变化');
+     state.expenses[index]=after;
+     state.expenseEvents=[...events,{requestId:input.requestId,action:'correct-expense',at:createdAt,expenseId:input.id,revision:revision+1,before:structuredClone(current),after:structuredClone(after)}];
     }else if(input.kind==='batch'){
      date(input.date);if(!Array.isArray(input.allocations)||!input.allocations.length||input.allocations.length>state.expenses.length)fail('分配无效');
      const seen=new Set();
