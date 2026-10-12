@@ -40,7 +40,11 @@ function createLedger(root,service){
    if(input.kind==='expense'){
     const e=input.expense;if(!e||!['接待','办公'].includes(e.category))fail('费用类别无效');
     date(e.date);text(e.merchant,100);text(e.note,500,false);amount(e.amount);
-    if(input.image){
+   }else if(input.kind==='advance'){
+    const a=input.advance;if(!a||typeof a!=='object')fail('预支到账记录无效');
+    amount(a.amount);date(a.date);text(a.note??'',500,false);
+   }
+   if((input.kind==='expense'||input.kind==='advance')&&input.image){
      if(typeof input.image.base64!=='string'||input.image.base64.length>Math.ceil(MAX_BYTES/3)*4||!/^[A-Za-z0-9+/]+={0,2}$/.test(input.image.base64))fail('附件无效');
      const bytes=Buffer.from(input.image.base64,'base64'),suffix=imageSuffix(bytes);
      await service.recognize(bytes,{validateOnly:true});
@@ -48,7 +52,6 @@ function createLedger(root,service){
      const fd=fs.openSync(path.join(attachments,file),'wx',0o600);savedFile=path.join(attachments,file);
      try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
      attachment={id,file,size:bytes.length,mime:suffix==='.png'?'image/png':'image/jpeg',sha256:createHash('sha256').update(bytes).digest('hex')};
-    }
    }
    const result=db.transaction(()=>{
     const state=read(),createdAt=new Date().toISOString();
@@ -60,13 +63,12 @@ function createLedger(root,service){
      const details=state.advanceDetails??{};
      if(typeof details!=='object'||Array.isArray(details)||Object.hasOwn(details,state.advances.length))fail('现有预支记录信息无效，请保留账本');
      // Amounts remain the single source of funds. Legacy entries are never rewritten or dated.
-     state.advanceDetails={...details,[state.advances.length]:{date:day,note,createdAt}};
+     state.advanceDetails={...details,[state.advances.length]:{date:day,note,createdAt,...(attachment?{attachmentId:attachment.id}:{})}};
      state.advances.push(value);
     }else if(input.kind==='expense'){
      const e=input.expense;total([...state.expenses.map(e=>e.amount),e.amount]);
      const id=Math.max(0,...state.expenses.map(e=>e.id))+1;
      state.expenses.push({id,category:e.category,date:e.date,merchant:e.merchant.trim(),amount:e.amount,note:e.note.trim(),invoice:0,...(attachment?{attachmentId:attachment.id}:{})});
-     if(attachment)db.prepare('INSERT INTO attachments VALUES(@id,@file,@sha256,@size,@mime)').run(attachment);
     }else if(input.kind==='batch'){
      date(input.date);if(!Array.isArray(input.allocations)||!input.allocations.length||input.allocations.length>state.expenses.length)fail('分配无效');
      const seen=new Set();
@@ -80,6 +82,7 @@ function createLedger(root,service){
     }else{
      const batch=state.batches.find(b=>b.id===input.id);if(!batch)fail('批次不存在');batch.active=false;
     }
+    if(attachment)db.prepare('INSERT INTO attachments VALUES(@id,@file,@sha256,@size,@mime)').run(attachment);
     db.prepare('UPDATE trial_state SET json=? WHERE id=1').run(JSON.stringify(state));
     db.prepare('INSERT INTO operations VALUES(?,?,?,?)').run(input.requestId,digest,input.kind,createdAt);
     return state;
