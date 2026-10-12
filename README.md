@@ -60,6 +60,8 @@ npm start
 
 原生已有功能已在新合成 userData 定向验证，见 [Electron 支持矩阵与证据](docs/NATIVE_COMPAT_VALIDATION.md)。默认 `npm start` 不自动接管旧账本；备份／清空仅在显式 managed 隔离配置下启用。本轮合成启动脚本 `evidence/stage0/native-compat-2026-10-12/start-native.sh` 可打开空账本；恢复样例脚本为同目录 `start-restored-native.sh`，先正常关闭前一个再运行。未重新打包，Windows 未验证。
 
+费用纠错与发票的后续原生收拢也已在全新合成userData完成，见[原生增量验证](docs/NATIVE_INVOICE_VALIDATION.md)。可用 `sh evidence/stage0/native-invoices-2026-10-12/start-native.sh` 打开合成原账本，或同目录 `start-restored-native.sh` 打开新目录恢复样例；两者使用9340，先正常关闭前一个再启动。当前均已正常退出。只验证Mac开发入口，Windows、安装包及OS原生拖拽仍未验证。
+
 ## OCR 依赖样例（Mac）
 
 使用 Python 3.12 创建项目 .venv-ocr，不修改系统环境：

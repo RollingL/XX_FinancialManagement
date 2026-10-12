@@ -1,5 +1,7 @@
 # 发票管理最小闭环验证
 
+后续更新：本报告记录集成轮结果；费用纠错与发票的Mac Electron原生UI／IPC、附件、失败重试、备份恢复及正常重开已另行验证，见[NATIVE_INVOICE_VALIDATION](NATIVE_INVOICE_VALIDATION.md)。下方原生未测项为当轮历史边界，Windows及安装包仍未验证。
+
 2026-10-12。本轮是阶段0既有试用账本的授权扩展，已完成本地集成；不是阶段1、完整发票产品或Windows验收。沿用 `codex/ui-mist-lavender-v2`，接管基线 `e3a7449efa7a310529a2c9c3c7e9f6110ff70f17`。接管时9个已修改及9个未跟踪文件全部保留复用。收到旧任务及5个子代理停止通知后才开始写入。
 
 ## 实际交付
