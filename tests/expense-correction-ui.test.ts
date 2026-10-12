@@ -35,6 +35,16 @@ test('invoice allocations and any active or cancelled reimbursement association 
  assert.equal(correctionRestriction(unrelated.expenses[0],unrelated),null);
 });
 
+test('new invoice allocation history prevents correction after unlinking without rewriting legacy expense invoice',()=>{
+ const original=expense(),base={id:1,identityType:'number' as const,number:'SYN-01',code:'',date:'2026-10-12',seller:'合成销售方',buyer:'',amount:100,note:'',attachmentIds:['synthetic-invoice-image'],revision:1,createdAt:'2026-10-12T01:00:00.000Z'};
+ const linked={...base,allocations:[{expenseId:original.id,amount:1}]};
+ assert.match(correctionRestriction(original,ledger({invoices:[linked]}))!,/发票关联历史/);
+ const unlinked={...base,revision:2,allocations:[]};
+ const state=ledger({invoices:[unlinked],invoiceEvents:[{requestId:'synthetic-unlink',action:'invoice-allocate',at:'2026-10-12T02:00:00.000Z',invoiceId:1,revision:2,before:linked,after:unlinked}]});
+ assert.equal(original.invoice,0);assert.match(correctionRestriction(original,state)!,/解除关联/);assert.throws(()=>correctionSession(state,original),/发票关联历史/);
+ assert.equal(correctionRestriction(original,ledger({invoices:[unlinked]})),null);
+});
+
 test('deleted batch audit blocks correction even when only the seventh allocation references the expense',()=>{
  const before={...batch(false),allocations:[...Array.from({length:6},(_,i)=>({expenseId:100+i,amount:1})),{expenseId:11,amount:10}]};
  const state=ledger({batchEvents:[{requestId:'synthetic-delete',action:'delete-batch',at:'2026-10-12T02:00:00Z',batchId:1,before,after:null}]});

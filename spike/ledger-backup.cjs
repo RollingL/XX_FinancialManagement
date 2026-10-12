@@ -134,7 +134,8 @@ function inspectDatabase(file){
    if(batch.active)for(const a of batch.allocations){const value=(used.get(a.expenseId)||0n)+BigInt(a.amount);requireThat(value<=BigInt(expenses.get(a.expenseId).amount),'有效分配超过费用金额');used.set(a.expenseId,value);reimbursed+=BigInt(a.amount);}
   }
   const operationMap=new Map();
-  for(const op of operations){requireThat(UUID.test(op.id)&&HASH.test(op.digest)&&['expense','advance','batch','cancel','delete-batch','correct-expense'].includes(op.kind)&&timestamp(op.created_at),'请求操作记录无效');operationMap.set(op.id,op);}
+  const invoiceActions=['invoice','invoice-identity','invoice-attachment','invoice-allocate'];
+  for(const op of operations){requireThat(UUID.test(op.id)&&HASH.test(op.digest)&&['expense','advance','batch','cancel','delete-batch','correct-expense',...invoiceActions].includes(op.kind)&&timestamp(op.created_at),'请求操作记录无效');operationMap.set(op.id,op);}
   const corrections=state.expenseEvents===undefined?[]:state.expenseEvents;requireThat(Array.isArray(corrections),'费用纠错审计无效');
   const correctionRequests=new Set(),latestCorrection=new Map(),editable=new Set(['category','date','merchant','amount','note']);
   const stableFields=expense=>Object.fromEntries(Object.entries(expense).filter(([key])=>!editable.has(key)));
@@ -165,6 +166,79 @@ function inspectDatabase(file){
    const extension=imageName(row.file);requireThat(UUID.test(row.id)&&row.file===`${row.id}.${extension}`&&HASH.test(row.sha256)&&positive(row.size)&&row.size<=MAX_IMAGE&&row.mime===(extension==='png'?'image/png':'image/jpeg')&&!attachmentNames.has(row.file.toLowerCase()),'附件元数据无效');
    attachmentIds.add(row.id);attachmentNames.add(row.file.toLowerCase());
   }
+  const invoices=state.invoices===undefined?[]:state.invoices,invoiceEvents=state.invoiceEvents===undefined?[]:state.invoiceEvents;
+  requireThat(Array.isArray(invoices)&&Array.isArray(invoiceEvents),'发票记录或审计无效');
+  const attachmentMap=new Map(attachments.map(row=>[row.id,row])),cashReferences=new Set(references);
+  const invoiceKeys=['id','identityType','number','code','date','seller','buyer','amount','note','attachmentIds','allocations','revision','createdAt'].sort();
+  const normalizedIdentity=value=>typeof value==='string'&&value===value.trim().normalize('NFKC').replace(/\s/g,'').toUpperCase().normalize('NFKC')&&value.length<=100;
+  function validateInvoice(invoice){
+   requireThat(object(invoice),'发票记录无效');same(Object.keys(invoice).sort(),invoiceKeys,'发票记录包含未知或缺失字段');
+   requireThat(positive(invoice.id)&&positive(invoice.revision)&&positive(invoice.amount)&&validDate(invoice.date)&&timestamp(invoice.createdAt)&&safeText(invoice.seller,200)&&safeText(invoice.buyer,200)&&safeText(invoice.note,500)&&normalizedIdentity(invoice.number)&&normalizedIdentity(invoice.code),'发票字段或金额无效');
+   requireThat(['unconfirmed','number','code-number'].includes(invoice.identityType)&&(invoice.identityType!=='number'||(!!invoice.number&&!invoice.code))&&(invoice.identityType!=='code-number'||(!!invoice.number&&!!invoice.code)),'发票身份字段无效');
+   requireThat(Array.isArray(invoice.attachmentIds)&&invoice.attachmentIds.length>0&&Array.isArray(invoice.allocations),'发票附件或分配无效');
+   const ids=new Set(),hashes=new Set(),allocated=new Set();let sum=0n;
+   for(const id of invoice.attachmentIds){
+    const row=attachmentMap.get(id);requireThat(typeof id==='string'&&UUID.test(id)&&row&&!ids.has(id)&&!cashReferences.has(id)&&!hashes.has(row.sha256),'发票附件缺失、重复或混用了资金截图');
+    ids.add(id);hashes.add(row.sha256);addReference(id);
+   }
+   requireThat(invoice.identityType!=='unconfirmed'||invoice.allocations.length===0,'待核对发票不能分配');
+   for(const allocation of invoice.allocations){
+    requireThat(object(allocation)&&positive(allocation.expenseId)&&expenses.has(allocation.expenseId)&&!allocated.has(allocation.expenseId)&&positive(allocation.amount),'发票分配引用或金额无效');
+    same(Object.keys(allocation).sort(),['amount','expenseId'],'发票分配包含未知或缺失字段');allocated.add(allocation.expenseId);sum+=BigInt(allocation.amount);
+   }
+   requireThat(sum<=BigInt(invoice.amount),'发票分配超过票面金额');
+  }
+  const registry=()=>({records:new Map(),identities:new Map(),hashes:new Map(),allocations:new Map(),amount:0n});
+  function registerInvoice(invoice,index){
+   validateInvoice(invoice);requireThat(!index.records.has(invoice.id),'重复发票编号');
+   index.amount+=BigInt(invoice.amount);requireThat(index.amount<=BigInt(Number.MAX_SAFE_INTEGER),'发票票面总额超过安全整数');
+   if(invoice.number){
+    const codes=index.identities.get(invoice.number)||new Map();
+    requireThat(!codes.size||(!!invoice.code&&!codes.has('')&&!codes.has(invoice.code)),'发票号码重复或与已有待核对号码冲突');
+    codes.set(invoice.code,invoice.id);index.identities.set(invoice.number,codes);
+   }
+   for(const id of invoice.attachmentIds){const sha=attachmentMap.get(id).sha256;requireThat(!index.hashes.has(sha),'不同发票重复使用相同图像');index.hashes.set(sha,invoice.id);}
+   for(const allocation of invoice.allocations){
+    const value=(index.allocations.get(allocation.expenseId)||0n)+BigInt(allocation.amount),expense=expenses.get(allocation.expenseId);
+    requireThat(value+BigInt(expense.invoice)<=BigInt(expense.amount),'发票分配与旧票额合计超过费用金额');index.allocations.set(allocation.expenseId,value);
+   }
+   index.records.set(invoice.id,invoice);
+  }
+  function unregisterInvoice(invoice,index){
+   index.records.delete(invoice.id);index.amount-=BigInt(invoice.amount);
+   if(invoice.number){const codes=index.identities.get(invoice.number);codes.delete(invoice.code);if(!codes.size)index.identities.delete(invoice.number);}
+   for(const id of invoice.attachmentIds)index.hashes.delete(attachmentMap.get(id).sha256);
+   for(const allocation of invoice.allocations)index.allocations.set(allocation.expenseId,index.allocations.get(allocation.expenseId)-BigInt(allocation.amount));
+  }
+  const currentInvoices=registry(),historicInvoices=registry(),invoiceRequests=new Set();
+  for(const invoice of invoices)registerInvoice(invoice,currentInvoices);
+  const unchangedInvoiceFields=(invoice,mutable)=>Object.fromEntries(Object.entries(invoice).filter(([key])=>key!=='revision'&&!mutable.includes(key)));
+  for(const event of invoiceEvents){
+   requireThat(object(event)&&invoiceActions.includes(event.action)&&typeof event.requestId==='string'&&UUID.test(event.requestId)&&!invoiceRequests.has(event.requestId)&&timestamp(event.at)&&positive(event.invoiceId)&&currentInvoices.records.has(event.invoiceId)&&positive(event.revision),'发票审计字段无效');
+   same(Object.keys(event).sort(),['requestId','action','at','invoiceId','revision','before','after'].sort(),'发票审计包含未知或缺失字段');
+   validateInvoice(event.after);requireThat(event.after.id===event.invoiceId&&event.after.revision===event.revision,'发票审计编号或修订不一致');
+   const previous=historicInvoices.records.get(event.invoiceId);
+   if(event.action==='invoice'){
+    requireThat(!previous&&event.before===null&&event.revision===1&&event.after.createdAt===event.at&&event.after.allocations.length===0&&event.after.attachmentIds.length===1,'新增发票审计无效');
+   }else{
+    requireThat(previous&&event.revision===previous.revision+1,'发票修订顺序无效');same(event.before,previous,'发票前后审计链不连续');
+    if(event.action==='invoice-identity'){
+     requireThat(previous.identityType==='unconfirmed'&&['number','code-number'].includes(event.after.identityType),'发票身份只能从待核对确认');
+     same(unchangedInvoiceFields(previous,['identityType','number','code']),unchangedInvoiceFields(event.after,['identityType','number','code']),'确认发票改变了其他字段');
+    }else if(event.action==='invoice-attachment'){
+     same(unchangedInvoiceFields(previous,['attachmentIds']),unchangedInvoiceFields(event.after,['attachmentIds']),'补充发票图像改变了其他字段');
+     requireThat(event.after.attachmentIds.length===previous.attachmentIds.length+1,'发票补图必须仅追加一张');same(event.after.attachmentIds.slice(0,-1),previous.attachmentIds,'发票补图改变了原有附件');
+    }else{
+     same(unchangedInvoiceFields(previous,['allocations']),unchangedInvoiceFields(event.after,['allocations']),'发票分配改变了其他字段');requireThat(!isDeepStrictEqual(previous.allocations,event.after.allocations),'发票分配没有变化');
+    }
+    unregisterInvoice(previous,historicInvoices);
+   }
+   const op=operationMap.get(event.requestId);requireThat(op&&op.kind===event.action&&op.created_at===event.at,'发票审计缺少对应请求操作');
+   // Replay all invoices together so an old over-allocation cannot be hidden by a later release.
+   registerInvoice(event.after,historicInvoices);invoiceRequests.add(event.requestId);
+  }
+  for(const invoice of invoices)same(historicInvoices.records.get(invoice.id),invoice,'发票最后修订与当前记录不一致或缺少审计');
+  for(const op of operations)if(invoiceActions.includes(op.kind))requireThat(invoiceRequests.has(op.id),'发票请求缺少审计事实');
   for(const id of references)requireThat(attachmentIds.has(id),'附件引用缺少元数据');
   requireThat(expenseTotal<=BigInt(Number.MAX_SAFE_INTEGER)&&advanceTotal<=BigInt(Number.MAX_SAFE_INTEGER),'账本金钱合计超过安全整数');
   const balance=advanceTotal-expenseTotal;

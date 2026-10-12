@@ -5,6 +5,7 @@ const {createHash,randomUUID}=require('node:crypto');
 const {isDeepStrictEqual}=require('node:util');
 const Database=require('better-sqlite3');
 const {imageSuffix,MAX_BYTES}=require('./ocr-service.cjs');
+const {INVOICE_KINDS,validateInvoiceCommand,hasInvoiceHistory,applyInvoiceCommand}=require('./invoice-domain.cjs');
 const fail=message=>{throw Object.assign(Error(message),{status:422});};
 function amount(n){if(!Number.isSafeInteger(n)||n<=0)fail('金额须为安全范围内的正整数分');return n;}
 function total(values){const n=values.reduce((a,b)=>a+BigInt(b),0n);if(n>BigInt(Number.MAX_SAFE_INTEGER))fail('金额合计超出安全范围');return Number(n);}
@@ -42,11 +43,12 @@ function createLedger(root,service,managedToken){
   if(busy)fail('正在保存，请稍后再试');busy=true;
   let savedFile,committed=false;
   try{
-   if(!['expense','correct-expense','advance','batch','cancel','delete-batch'].includes(input.kind)||typeof input.requestId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(input.requestId))fail('保存请求无效');
+   if(!['expense','correct-expense','advance','batch','cancel','delete-batch',...INVOICE_KINDS].includes(input.kind)||typeof input.requestId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(input.requestId))fail('保存请求无效');
    if(input.kind==='delete-batch'&&(!Number.isSafeInteger(input.id)||input.id<=0))fail('批次编号无效');
    const digest=createHash('sha256').update(JSON.stringify(input)).digest('hex');
    const previous=db.prepare('SELECT digest FROM operations WHERE id=?').get(input.requestId);
    if(previous){if(previous.digest!==digest)fail('重复请求内容不一致，请重新打开面板');return read();}
+   if(INVOICE_KINDS.includes(input.kind))validateInvoiceCommand(input);
    let attachment;
    if(input.kind==='expense'){
     const e=input.expense;if(!e||!['接待','办公'].includes(e.category))fail('费用类别无效');
@@ -55,7 +57,7 @@ function createLedger(root,service,managedToken){
     const a=input.advance;if(!a||typeof a!=='object')fail('预支到账记录无效');
     amount(a.amount);date(a.date);text(a.note??'',500,false);
    }
-   if((input.kind==='expense'||input.kind==='advance')&&input.image){
+   if(['expense','advance','invoice','invoice-attachment'].includes(input.kind)&&input.image){
      if(typeof input.image.base64!=='string'||input.image.base64.length>Math.ceil(MAX_BYTES/3)*4||!/^[A-Za-z0-9+/]+={0,2}$/.test(input.image.base64))fail('附件无效');
      const bytes=Buffer.from(input.image.base64,'base64'),suffix=imageSuffix(bytes);
      await service.recognize(bytes,{validateOnly:true});
@@ -87,6 +89,7 @@ function createLedger(root,service,managedToken){
      const revision=events.filter(event=>event.expenseId===input.id).length;
      if(revision!==input.expectedRevision||!isDeepStrictEqual(current,input.expected))fail('费用已变化，请刷新后重新核对');
      if(current.invoice!==0)fail('已有票额的费用暂不支持纠错');
+     if(hasInvoiceHistory(state,input.id))fail('已有发票分配历史的费用暂不支持纠错');
      if([...state.batches,...batchEvents(state).map(event=>event.before)].some(batch=>batch.allocations.some(row=>row.expenseId===input.id)))fail('已有报销历史的费用暂不支持纠错');
      const e=input.expense;if(!e||typeof e!=='object'||Array.isArray(e)||Object.keys(e).sort().join(',')!=='amount,category,date,merchant,note'||!['接待','办公'].includes(e.category))fail('费用纠错字段无效，不能替换附件或添加其他业务字段');
      const after={...current,category:e.category,date:date(e.date),merchant:text(e.merchant,100),amount:amount(e.amount),note:text(e.note,500,false)};
@@ -94,6 +97,8 @@ function createLedger(root,service,managedToken){
      if(isDeepStrictEqual(current,after))fail('费用内容没有变化');
      state.expenses[index]=after;
      state.expenseEvents=[...events,{requestId:input.requestId,action:'correct-expense',at:createdAt,expenseId:input.id,revision:revision+1,before:structuredClone(current),after:structuredClone(after)}];
+    }else if(INVOICE_KINDS.includes(input.kind)){
+     applyInvoiceCommand(state,input,{attachment,createdAt,attachmentMetadata:db.prepare('SELECT id,sha256 FROM attachments').all()});
     }else if(input.kind==='batch'){
      date(input.date);if(!Array.isArray(input.allocations)||!input.allocations.length||input.allocations.length>state.expenses.length)fail('分配无效');
      const seen=new Set();
