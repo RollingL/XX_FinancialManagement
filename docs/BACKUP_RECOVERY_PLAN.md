@@ -1,6 +1,6 @@
 # 账本与附件备份恢复方案及验收清单
 
-日期：2026-10-12。状态：**已实现受限 managed 隔离账本的手动完整备份、验证和新目录恢复；Mac arm64 合成验证已通过。真实账本、Electron、Windows、覆盖恢复、迁移与断电恢复仍未验证或未实现。**
+日期：2026-10-12。状态：**已实现受限 managed 隔离账本的手动完整备份、验证和新目录恢复；Mac arm64 合成验证已通过。真实账本、Windows、新安装包、覆盖恢复、迁移与断电恢复仍未验证或未实现；Electron 开发运行的显式新隔离入口后续已定向验证。**
 
 用户后续已授权最小本地备份和新目录恢复。本轮只操作新建合成账本，不读取或接管 5173／5190／5191／5192 的既有数据，不自动切换账本。唯一当前状态见 [STAGE0_STATUS 顶部](STAGE0_STATUS.md#当前状态)；业务依据为 [需求规范第 10.2 节与 T20](../expense_bookkeeping_spec_v1.1.md#102-本地存储与备份)，实现与验证见 [MANAGED_BACKUP_VALIDATION](MANAGED_BACKUP_VALIDATION.md)。
 
@@ -11,7 +11,7 @@
 | 数据来源 | 入口及数据根目录 | 本轮状态 |
 | --- | --- | --- |
 | 浏览器正常试用 | Vite；项目 `.local-data/` 或既有试填目录 | 未读取、未备份、未接管；旧服务不遵守新锁协议 |
-| Electron 试用 | 开发与打包程序按各自 `app.getPath('userData')/stage0-trial/` 解析 | 尚未接入和验收本轮流程，不以浏览器目录代替 |
+| Electron 试用 | 开发与打包程序按各自 `app.getPath('userData')/stage0-trial/` 解析 | 默认旧入口不接管；显式新隔离 userData 已定向验证，见 [原生支持矩阵](NATIVE_COMPAT_VALIDATION.md)，不以浏览器目录代替 |
 | 新建 managed 隔离账本 | 显式指定新目录，具有 `managed-ledger.json` 和 `.writer-lock` 生命周期锁 | 已实现并合成实测；来源限定 `isolated-test`，无默认正常目录回退 |
 
 浏览器与 Electron 的数据不自动同步或合并。现有试用库仍为 `trial_state` 单行 JSON、`attachments` 元数据及 `operations` 请求表；新 managed 根目录另有账本 UUID，没有正式迁移版本或全量修订历史。删除批次的完整前值保留在 `batchEvents`。备份保存全部既有内容，不重建 JSON，不转换为规划中的正式模型，不伪造旧预支日期或缺失历史。

@@ -54,6 +54,8 @@ npm start
 
 `npm start` 是 Electron 原型窗口；“记一笔费用”中可上传 PNG/JPEG，查看原图、核对并修正金额/日期/商户。只有确认保存才登记费用并归档附件。浏览器版本用 `npm run dev`，直接打开 dist/index.html 不提供 OCR 和保存接口。
 
+原生已有功能已在新合成 userData 定向验证，见 [Electron 支持矩阵与证据](docs/NATIVE_COMPAT_VALIDATION.md)。默认 `npm start` 不自动接管旧账本；备份／清空仅在显式 managed 隔离配置下启用。本轮合成启动脚本 `evidence/stage0/native-compat-2026-10-12/start-native.sh` 可打开空账本；恢复样例脚本为同目录 `start-restored-native.sh`，先正常关闭前一个再运行。未重新打包，Windows 未验证。
+
 ## OCR 依赖样例（Mac）
 
 使用 Python 3.12 创建项目 .venv-ocr，不修改系统环境：
