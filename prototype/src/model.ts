@@ -1,7 +1,7 @@
 export type Category = '接待' | '办公';
 export type Expense = {id:number;date:string;category:Category;merchant:string;amount:number;invoice:number;note:string;attachmentId?:string};
 export type Allocation = {expenseId:number;amount:number};
-export type Batch = {id:number;date:string;allocations:Allocation[];active:boolean};
+export type Batch = {id:number;date:string;allocations:Allocation[];active:boolean;invoiceLinks?:{invoiceId:number;expenseIds:number[]}[]};
 export function decimal(value:number){
  if(!Number.isSafeInteger(value)) throw new Error('金额超出安全范围');
  const absolute=BigInt(value)<0n?-BigInt(value):BigInt(value);

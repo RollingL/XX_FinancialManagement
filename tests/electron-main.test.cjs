@@ -14,8 +14,11 @@ function harness(options={}){
  const worker=path.join(options.packaged?resources:path.join(path.dirname(mainFile),'ocr-dist'),'ocr-probe',platform==='win32'?'ocr-probe.exe':'ocr-probe');
  if(options.probe&&!options.workerMissing)files.set(worker,'file');
  for(const missing of options.missing||[])files.delete(missing);
+ const contents=new Map(options.contents||[]);
  const fakeFs={
-  lstatSync(file){const kind=files.get(file);if(!kind)throw Object.assign(Error('synthetic ENOENT'),{code:'ENOENT'});return {isDirectory:()=>kind==='directory',isFile:()=>kind==='file',isSymbolicLink:()=>kind==='symlink'};},
+  readFileSync(file){if(!contents.has(file))throw Error('synthetic missing contents');return contents.get(file);},
+  writeFileSync(file,value){calls.push({kind:'writeFile',file});contents.set(file,value);files.set(file,'file');},
+  lstatSync(file){const kind=files.get(file);if(!kind)throw Object.assign(Error('synthetic ENOENT'),{code:'ENOENT'});return {isDirectory:()=>kind==='directory',isFile:()=>kind==='file',isSymbolicLink:()=>kind==='symlink',size:contents.get(file)?.length||10};},
   realpathSync(file){return file;},
   mkdirSync(file){calls.push({kind:'mkdir',file});if(!files.has(file))files.set(file,'directory');},
   existsSync:file=>files.has(file),
@@ -47,7 +50,7 @@ function harness(options={}){
   return {stdout:JSON.stringify(Object.hasOwn(options,'ocrResult')?options.ocrResult:{status:'passed'}),stderr:''};
  };
  function fakeRequire(name){
-  if(name==='electron')return {app,BrowserWindow,ipcMain,dialog:{showErrorBox:(title,message)=>dialogs.push({title,message})}};
+  if(name==='electron')return {app,BrowserWindow,ipcMain,dialog:{showOpenDialog:async(win,settings)=>{calls.push({kind:'choose',win,settings});return options.choose?options.choose():{canceled:true,filePaths:[]};},showErrorBox:(title,message)=>dialogs.push({title,message})}};
   if(name==='./ocr-service.cjs')return {MAX_BYTES:20*1024*1024,createOcrService:(...args)=>{calls.push({kind:'createOcrService',args});return service;}};
   if(name==='./trial-ledger.cjs')return {createLedger:(...args)=>factory('createLedger',args)};
   if(name==='./managed-ledger.cjs')return {createManagedLedger:(...args)=>factory('createManagedLedger',args)};
@@ -198,4 +201,22 @@ test('ledger creation failure stops OCR and waits for its cleanup without openin
 test('startup cleanup failure exits with error and records that the ledger and lock remain',async()=>{
  const h=harness({env:managedEnv,loadError:Error('synthetic startup failure'),close:()=>Promise.reject(Error('synthetic close failure'))});await h.start();
  assert.deepEqual(h.exitCodes,[1]);assert.equal(h.count('quit'),0);assert.ok(h.errors.some(message=>message.includes('保留账本及锁')));assert.equal(h.count('ledger.close'),1);
+});
+
+ test('native restore chooser pins the source to a user-selected directory and passes generation, with cancellation and shutdown protection',async()=>{
+  const generation='synthetic-generation',folder=path.join(base,'synthetic-backup');
+  const h=harness({env:managedEnv,choose:async()=>({canceled:false,filePaths:[folder]})});await h.start();const handler=h.handlers.get('ledger:command');
+  await handler(h.trusted(),{kind:'choose-restore',generation});assert.equal(h.count('choose'),1);assert.deepEqual(JSON.parse(JSON.stringify(h.calls.find(c=>c.kind==='command').payload)),{kind:'prepare-restore',generation,backup:folder});
+  await assert.rejects(handler(h.trusted(),{kind:'choose-restore',generation,backup:'/renderer/path'}),/无效/);assert.equal(h.count('choose'),1);
+  const canceled=harness({env:managedEnv});await canceled.start();assert.equal(await canceled.handlers.get('ledger:command')(canceled.trusted(),{kind:'choose-restore',generation}),null);assert.equal(canceled.count('command'),0);
+  const choosing=deferred(),closing=harness({env:managedEnv,choose:()=>choosing.promise});await closing.start();const pending=closing.handlers.get('ledger:command')(closing.trusted(),{kind:'choose-restore',generation});await flush();closing.beforeQuit();choosing.resolve({canceled:false,filePaths:[folder]});await assert.rejects(pending,/正在关闭/);assert.equal(closing.count('command'),0);await flush();
+ });
+
+test('new marked Mac bundle isolates its default data and refuses an unowned existing folder',async()=>{
+ const resources=path.join(base,'resources'),marker=path.join(resources,'mac-trial.json'),buildId=randomUUID(),root=path.resolve(resources,'../../../mac-trial-data'),tag=path.join(root,'trial-marker.txt');
+ const contents=[[marker,JSON.stringify({format:1,buildId})]];
+ const h=harness({packaged:true,platform:'darwin',files:[[marker,'file']],contents});await h.start();
+ assert.equal(h.count('createManagedLedger'),1);assert.equal(h.calls.find(c=>c.kind==='createManagedLedger').args[0],path.join(root,'user-data','ledger'));assert.equal(h.paths.userData,path.join(root,'user-data'));assert.equal(h.count('createLedger'),0);
+ const reopen=harness({packaged:true,platform:'darwin',files:[[marker,'file'],[root,'directory'],[tag,'file']],contents:[...contents,[tag,buildId+'\n']]});await reopen.start();assert.equal(reopen.count('createManagedLedger'),1);
+ for(const extra of [[],[[tag,'file']]]){const rejected=harness({packaged:true,platform:'darwin',files:[[marker,'file'],[root,'directory'],...extra],contents:[...contents,[tag,'different']]});assert.deepEqual(rejected.exitCodes,[1]);assert.equal(rejected.count('whenReady'),0);assert.equal(rejected.count('createManagedLedger'),0);assert.equal(rejected.count('writeFile'),0);}
 });

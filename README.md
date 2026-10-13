@@ -2,7 +2,7 @@
 
 本项目是“钱来 财务管理系统”（原“小徐同学财务管理系统”）的 Windows 离线桌面账本，与 iPhone 口袋账本分开。**唯一当前状态见 [STAGE0_STATUS.md 顶部](docs/STAGE0_STATUS.md#当前状态)**；下文提供运行及操作入口，不代表新的阶段验收。
 
-2026-10-13：正在准备 Windows 10 Intel x64 完整离线便携候选，采用私有专用分支 Actions 构建；目标电脑无需 Node／Python。使用方法见[离线试用说明](docs/WINDOWS_OFFLINE_TRIAL.md)，实际通过与未测项见[Windows 验证](docs/WINDOWS_VALIDATION.md)。候选包不代表 Windows 10 已验收。
+2026-10-13 已验收基线 `stage0-2026-10-13-accepted`：用户确认Mac九项修订实测通过，Windows同阶段按用户决定视为验收通过；九项修订未重新做Windows真机测试或打包。接手先读 [验收与版本基线](docs/ACCEPTED_BASELINE_2026-10-13.md)，实现及279项回归见 [Mac反馈验证](docs/MAC_FEEDBACK_VALIDATION.md)。本次仅提交推送安全源码/文档到私有UI工作分支，不运行Actions或生成新包。
 
 阶段 0 试用流程：截图识别已内置“记一笔费用”：本机识别 → 核对/修正 → 确认保存 → 费用详情查看附件。费用、附件和现有报销分配保存到独立本地试用账本；尚非生产账本。
 

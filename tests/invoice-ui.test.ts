@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {balance,decimal,paid} from '../prototype/src/model.ts';
 import type {Expense} from '../prototype/src/model.ts';
 import type {Invoice,InvoiceEvent,LedgerState} from '../prototype/src/ledger.ts';
-import {expenseHasInvoiceHistory,expenseInvoiceAmount,invoiceAllocatedAmount,invoiceAllocationChanges,invoiceAllocationRows,invoiceCode,invoiceRecords,invoiceRequest,normalizeInvoiceIdentifier,parseInvoiceAllocations,parseInvoiceDraft,parseInvoiceIdentity,validateInvoiceAllocations} from '../prototype/src/invoice-model.ts';
+import {invoiceExpenseIds,expenseHasInvoice,validateInvoiceLinks,expenseHasInvoiceHistory,expenseInvoiceAmount,invoiceAllocatedAmount,invoiceAllocationChanges,invoiceAllocationRows,invoiceCode,invoiceRecords,invoiceRequest,normalizeInvoiceIdentifier,parseInvoiceAllocations,parseInvoiceDraft,parseInvoiceIdentity,validateInvoiceAllocations} from '../prototype/src/invoice-model.ts';
 import type {InvoiceDraft,InvoiceRequestBody} from '../prototype/src/invoice-model.ts';
 import {matchesExpense,paginate} from '../prototype/src/records.ts';
 
@@ -23,13 +23,10 @@ test('legacy ledger without invoice arrays preserves its original covered amount
  assert.deepEqual(state,before);
 });
 
-test('expense coverage includes legacy plus all current invoices, and excludes only the edited invoice',()=>{
- const state=ledger({expenses:[expense(1,{invoice:1000}),expense(2)],invoices:[invoice(1,{allocations:[{expenseId:1,amount:2000},{expenseId:2,amount:500}]}),invoice(2,{allocations:[{expenseId:1,amount:3000}]})]});
- assert.equal(expenseInvoiceAmount(state,1),6000);
- assert.equal(expenseInvoiceAmount(state,1,1),4000);
- assert.equal(expenseInvoiceAmount(state,1,2),3000);
- assert.equal(expenseInvoiceAmount(state,2),500);
- assert.equal(expenseInvoiceAmount(state,2,1),0);
+test('legacy allocations become boolean associations and explicit IDs override legacy amounts',()=>{
+ const state=ledger({expenses:[expense(1,{invoice:1000}),expense(2)],invoices:[invoice(1,{allocations:[{expenseId:1,amount:2000},{expenseId:2,amount:500}]}),invoice(2,{expenseIds:[],allocations:[{expenseId:2,amount:9999}]})]});
+ assert.equal(expenseHasInvoice(state,1),true);assert.equal(expenseHasInvoice(state,2),true);assert.deepEqual(invoiceExpenseIds(state.invoices![0]),[1,2]);assert.deepEqual(invoiceExpenseIds(state.invoices![1]),[]);
+ assert.equal(expenseInvoiceAmount(state,1),10000);assert.equal(expenseInvoiceAmount(state,2,1),0);
 });
 
 test('invoice history remains after complete unlinking, including associations on the seventh row',()=>{
@@ -75,11 +72,9 @@ test('identity normalization stays canonical after uppercasing combining charact
  assert.deepEqual(parseInvoiceIdentity({identityType:'code-number',number:'\u0390',code:'\u03b9\u0308\u0301'}),{identityType:'code-number',number:canonical,code:canonical});
 });
 
-test('unconfirmed identity may preserve tentative identifiers but cannot allocate even an empty replacement',()=>{
- assert.deepEqual(parseInvoiceIdentity({identityType:'unconfirmed',number:'',code:''}),{identityType:'unconfirmed',number:'',code:''});
+test('pending identity can associate expenses without imposing amount capacity',()=>{
  assert.deepEqual(parseInvoiceIdentity({identityType:'unconfirmed',number:' ａ ',code:' b '}),{identityType:'unconfirmed',number:'A',code:'B'});
- assert.throws(()=>validateInvoiceAllocations([],ledger(),invoice(1,{identityType:'unconfirmed'})),/先核对/);
- assert.throws(()=>validateInvoiceAllocations([{expenseId:1,amount:1}],ledger(),invoice(1,{identityType:'unconfirmed'})),/先核对/);
+ assert.deepEqual(validateInvoiceLinks([2,1],ledger()),[1,2]);assert.equal(validateInvoiceAllocations([{expenseId:1,amount:20000}],ledger(),invoice(1,{identityType:'unconfirmed',amount:1})),20000);
 });
 
 test('invoice draft parses exact cents, real dates, optional parties and note while limiting lengths',()=>{
@@ -100,34 +95,10 @@ test('editing a fully allocated invoice excludes its old rows and can replace al
  assert.deepEqual(state,before);
 });
 
-test('legacy coverage and other invoices consume expense capacity independently of reimbursement progress',()=>{
- const current=invoice(1,{allocations:[{expenseId:1,amount:2000}]}),other=invoice(2,{allocations:[{expenseId:1,amount:3000}]}),state=ledger({expenses:[expense(1,{invoice:1000}),expense(2)],invoices:[current,other],batches:[{id:1,date:'2026-10-12',active:true,allocations:[{expenseId:1,amount:10000}]}]});
- assert.equal(paid(1,state.batches),10000);
- assert.equal(validateInvoiceAllocations([{expenseId:1,amount:6000}],state,current),6000);
- assert.throws(()=>validateInvoiceAllocations([{expenseId:1,amount:6001}],state,current),/费用 #1/);
- const noReimbursement={...state,batches:[]};
- assert.equal(validateInvoiceAllocations([{expenseId:1,amount:6000}],noReimbursement,current),6000);
-});
-
-test('invoice side total, duplicate ids, absent expenses and nonpositive/unsafe row amounts are rejected',()=>{
- const state=ledger(),current=invoice(1,{amount:1000});
- assert.throws(()=>validateInvoiceAllocations([{expenseId:1,amount:600},{expenseId:2,amount:401}],state,current),/发票金额/);
- assert.throws(()=>validateInvoiceAllocations([{expenseId:1,amount:1},{expenseId:1,amount:2}],state,current),/重复/);
- assert.throws(()=>validateInvoiceAllocations([{expenseId:99,amount:1}],state,current),/不存在/);
- for(const expenseId of [0,-1,1.5,Number.MAX_SAFE_INTEGER+1])assert.throws(()=>validateInvoiceAllocations([{expenseId,amount:1}],state,current),/编号/);
- for(const amount of [0,-1,1.5,Number.MAX_SAFE_INTEGER+1])assert.throws(()=>validateInvoiceAllocations([{expenseId:1,amount}],state,current),/正整数分/);
- assert.throws(()=>parseInvoiceAllocations({1:''},state,current));
- assert.throws(()=>parseInvoiceAllocations({1:'0'},state,current));
- assert.throws(()=>parseInvoiceAllocations({1:'1.001'},state,current));
-});
-
-test('safe integer limits are preserved in aggregate coverage and invoice allocation totals',()=>{
- const max=Number.MAX_SAFE_INTEGER,current=invoice(1,{amount:max}),state=ledger({expenses:[expense(1,{amount:max})],invoices:[current]});
- assert.equal(validateInvoiceAllocations([{expenseId:1,amount:max}],state,current),max);
- const excessive=ledger({expenses:[expense(1,{amount:max,invoice:max})],invoices:[invoice(1,{allocations:[{expenseId:1,amount:1}]})]});
- assert.throws(()=>expenseInvoiceAmount(excessive,1),/安全范围/);
- const aggregate=ledger({expenses:[expense(1,{amount:max}),expense(2,{amount:max})],invoices:[current]});
- assert.throws(()=>validateInvoiceAllocations([{expenseId:1,amount:max},{expenseId:2,amount:1}],aggregate,current),/安全范围/);
+test('pure links reject duplicate unsafe or missing IDs, never impose expense or invoice amount limits',()=>{
+ const state=ledger({invoices:[invoice(1,{amount:1})]});assert.deepEqual(validateInvoiceLinks([1,2],state),[1,2]);
+ for(const ids of [[1,1],[99],[0],[-1],[1.5],[Number.MAX_SAFE_INTEGER+1]])assert.throws(()=>validateInvoiceLinks(ids,state));
+ assert.equal(validateInvoiceAllocations([{expenseId:1,amount:Number.MAX_SAFE_INTEGER}],state,state.invoices![0]),Number.MAX_SAFE_INTEGER);
 });
 
 test('search and six-row pagination never narrow the complete allocation draft across categories',()=>{

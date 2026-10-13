@@ -2,7 +2,7 @@ import {decimal,paid,remaining} from './model.ts';
 import type {Batch,Expense} from './model.ts';
 import type {LedgerState} from './ledger.ts';
 import {matchesExpense} from './records.ts';
-import {expenseInvoiceAmount} from './invoice-model.ts';
+import {expenseHasInvoice,invoiceCode,invoiceExpenseIds} from './invoice-model.ts';
 
 export type ExpenseFilters={category:'全部费用'|'接待'|'办公';query:string;status:string;startDate:string;endDate:string;missing:boolean};
 
@@ -24,10 +24,10 @@ export function filterExpenses(state:LedgerState,filters:ExpenseFilters):Expense
   &&matchesExpense(expense,filters.query)
   &&(!filters.startDate||expense.date>=filters.startDate)&&(!filters.endDate||expense.date<=filters.endDate)
   &&(filters.status==='全部状态'||expenseStatus(expense,state.batches)===filters.status)
-  &&(!filters.missing||expenseInvoiceAmount(state,expense.id)<expense.amount));
+  &&(!filters.missing||!expenseHasInvoice(state,expense.id)));
 }
 
-const headers=['费用编号','实际支出日期','费用类别','商户/采购摘要','备注','支出金额（元）','已报销金额（元）','待报销金额（元）','报销状态','已关联票额（元）','未覆盖票额（元）','发票状态'];
+const headers=['费用编号','实际支出日期','费用类别','商户/采购摘要','备注','支出金额（元）','已报销金额（元）','待报销金额（元）','报销状态','关联发票编号','发票状态'];
 function textCell(value:string){
  // Normalize only for detection: exported business text otherwise keeps its original bytes.
  const unsafe=/^[=+\-@\s\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u.test(value.normalize('NFKC'));
@@ -37,10 +37,11 @@ export function expenseCsv(state:LedgerState,expenses:Expense[]):string{
  const rows=[headers.map(textCell).join(',')];
  for(const expense of expenses){
   if(!Number.isSafeInteger(expense.id))throw new Error('费用编号超出安全范围');
-  const covered=expenseInvoiceAmount(state,expense.id),uncovered=Math.max(0,expense.amount-covered);
+  const linked=(state.invoices??[]).filter(invoice=>invoiceExpenseIds(invoice).includes(expense.id)).map(invoice=>invoiceCode(invoice.id));
+  if(expense.invoice>0)linked.push('legacy标记');
   rows.push([String(expense.id),textCell(expense.date),textCell(expense.category),textCell(expense.merchant),textCell(expense.note),
    decimal(expense.amount),decimal(paid(expense.id,state.batches)),decimal(remaining(expense,state.batches)),textCell(expenseStatus(expense,state.batches)),
-   decimal(covered),decimal(uncovered),textCell(covered===0?'无发票':uncovered>0?'部分覆盖':'已覆盖')].join(','));
+   textCell(linked.join(';')),textCell(expenseHasInvoice(state,expense.id)?'已关联':'无发票')].join(','));
  }
  return '\uFEFF'+rows.join('\r\n')+'\r\n';
 }

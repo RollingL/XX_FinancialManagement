@@ -41,7 +41,7 @@ async function populated(f){
  await f.change('invoice-allocate',1,{allocations:[{expenseId:2,amount:2000},{expenseId:1,amount:4000}]});
  await f.command({kind:'invoice',invoice:invoice({identityType:'code-number',number:'OTHER001',code:'CODE-A',amount:5000}),image:image('other-invoice')});
  await f.change('invoice-allocate',2,{allocations:[{expenseId:1,amount:1000},{expenseId:2,amount:1001},{expenseId:3,amount:600}]});
- await f.change('invoice-allocate',1,{allocations:[{expenseId:1,amount:3000},{expenseId:2,amount:1500}]});
+ await f.change('invoice-allocate',1,{allocations:[{expenseId:1,amount:3000}]});
  await f.change('invoice-allocate',2,{allocations:[]});
  await f.change('invoice-allocate',2,{allocations:[{expenseId:1,amount:2000},{expenseId:2,amount:1501},{expenseId:3,amount:600}]});
  await f.command({kind:'batch',date:'2026-10-12',allocations:[{expenseId:1,amount:1000},{expenseId:2,amount:501}]});
@@ -90,7 +90,7 @@ test('legacy no-invoice state stays byte-for-byte unchanged and keeps the origin
  const restored=restoreBackup({backupDir:saved.directory,targetDir:path.join(f.root,'legacy')}),ledger=f.open(restored.directory);await ledger.command({kind:'read'});await ledger.close();assert.deepEqual(snapshot(restored.directory),before);assert.deepEqual(snapshot(f.source),before);
 });
 
-test('strict invoice fields, canonical identity, attachments, allocations and both amount limits reject resealed backups',async t=>{
+test('strict invoice fields, canonical identity, attachments and pure associations reject resealed backups',async t=>{
  const f=fixture(t);await populated(f);const saved=await f.ledger.backup(f.destination),original=fs.readFileSync(path.join(saved.directory,'database.sqlite'));
  const cases=[
   ['null invoices',s=>{s.invoices=null;}],['null events',s=>{s.invoiceEvents=null;}],['missing events',s=>{delete s.invoiceEvents;}],['no current invoice',s=>{s.invoices=[];}],
@@ -102,9 +102,8 @@ test('strict invoice fields, canonical identity, attachments, allocations and bo
   ['no attachment',s=>{s.invoices[0].attachmentIds=[];}],['missing attachment',s=>{s.invoices[0].attachmentIds[0]=randomUUID();}],['invalid attachment',s=>{s.invoices[0].attachmentIds[0]='../outside.png';}],['duplicate attachment',s=>{s.invoices[0].attachmentIds.push(s.invoices[0].attachmentIds[0]);}],
   ['payment attachment reuse',s=>{s.invoices[0].attachmentIds[0]=s.expenses[0].attachmentId;}],['advance attachment reuse',s=>{s.invoices[0].attachmentIds[0]=s.advanceDetails['0'].attachmentId;}],['cross-invoice image reuse',s=>{s.invoices[1].attachmentIds=[s.invoices[0].attachmentIds[0]];}],
   ['same image under different ids', (s,db)=>{db.prepare('UPDATE attachments SET sha256=(SELECT sha256 FROM attachments WHERE id=?) WHERE id=?').run(s.invoices[0].attachmentIds[0],s.invoices[0].attachmentIds[1]);}],
-  ['unknown allocation field',s=>{s.invoices[0].allocations[0].extra=1;}],['unknown expense',s=>{s.invoices[0].allocations[0].expenseId=99;}],['duplicate expense',s=>{s.invoices[0].allocations.push({...s.invoices[0].allocations[0]});}],
-  ['zero allocation',s=>{s.invoices[0].allocations[0].amount=0;}],['negative allocation',s=>{s.invoices[0].allocations[0].amount=-1;}],['fractional allocation',s=>{s.invoices[0].allocations[0].amount=0.5;}],['unsafe allocation',s=>{s.invoices[0].allocations[0].amount=Number.MAX_SAFE_INTEGER+1;}],
-  ['invoice-side overflow',s=>{s.invoices[0].allocations[0].amount=6001;}],['expense-side overflow',s=>{s.invoices[1].allocations[0].amount=2001;}],['legacy invoice baseline overflow',s=>{s.invoices[1].allocations[2].amount=601;}],
+  ['unknown expense',s=>{s.invoices[0].expenseIds[0]=99;}],['duplicate expense',s=>{s.invoices[0].expenseIds.push(s.invoices[0].expenseIds[0]);}],['zero expense',s=>{s.invoices[0].expenseIds[0]=0;}],['invalid associations',s=>{s.invoices[0].expenseIds={};}],
+
  ];
  for(const [label,change] of cases){reseal(saved.directory,original,change);assert.throws(()=>verifyBackup(saved.directory),undefined,label);}
  reseal(saved.directory,original,()=>{});verifyBackup(saved.directory);
@@ -124,7 +123,7 @@ test('invoice event transitions cannot change stable facts, skip revisions or om
   ['unknown event key',s=>{s.invoiceEvents[0].extra=1;}],['unknown action',s=>{s.invoiceEvents[0].action='delete-invoice';}],['wrong event invoice id',s=>{s.invoiceEvents[0].invoiceId=2;}],['wrong revision',s=>{s.invoiceEvents[1].revision=3;}],['duplicate request id',s=>{s.invoiceEvents[1].requestId=s.invoiceEvents[0].requestId;}],
   ['wrong before initial',s=>{events(s).create.before={};}],['initial allocated',s=>{events(s).create.after.allocations=[{expenseId:1,amount:1}];}],['initial multiple scans',s=>{events(s).create.after.attachmentIds=events(s).scan.after.attachmentIds;}],['initial timestamp mismatch',s=>{events(s).create.after.createdAt='2026-01-01T00:00:00.000Z';}],
   ['broken chain',s=>{events(s).scan.before.note='changed before';}],['scan modifies amount',s=>{events(s).scan.after.amount++;}],['scan removes image',s=>{events(s).scan.after.attachmentIds.shift();}],['scan changes image order',s=>{events(s).scan.after.attachmentIds.reverse();}],
-  ['confirmation remains unconfirmed',s=>{events(s).identity.after.identityType='unconfirmed';}],['confirmation modifies note',s=>{events(s).identity.after.note='changed';}],['allocation modifies seller',s=>{events(s).allocate.after.seller='changed';}],['allocation no change',s=>{events(s).allocate.after.allocations=[];}],
+  ['confirmation remains unconfirmed',s=>{events(s).identity.after.identityType='unconfirmed';}],['confirmation modifies note',s=>{events(s).identity.after.note='changed';}],['allocation modifies seller',s=>{events(s).allocate.after.seller='changed';}],['allocation no change',s=>{events(s).allocate.after.expenseIds=[];}],
   ['last after differs',s=>{s.invoiceEvents.at(-1).after.note='not current';}],['reordered events',s=>{[s.invoiceEvents[0],s.invoiceEvents[1]]=[s.invoiceEvents[1],s.invoiceEvents[0]];}],
   ['missing operation',(s,db)=>{db.prepare('DELETE FROM operations WHERE id=?').run(s.invoiceEvents[0].requestId);}],['operation action mismatch',(s,db)=>{db.prepare('UPDATE operations SET kind=? WHERE id=?').run('expense',s.invoiceEvents[0].requestId);}],
   ['operation timestamp mismatch',(s,db)=>{db.prepare('UPDATE operations SET created_at=? WHERE id=?').run('2026-01-01T00:00:00.000Z',s.invoiceEvents[0].requestId);}],['extra operation',(s,db)=>{db.prepare('INSERT INTO operations VALUES(?,?,?,?)').run(randomUUID(),'a'.repeat(64),'invoice-allocate',s.invoiceEvents[0].at);}],
@@ -133,16 +132,15 @@ test('invoice event transitions cannot change stable facts, skip revisions or om
  reseal(saved.directory,original,()=>{});verifyBackup(saved.directory);
 });
 
-test('replaying audit catches historical over-allocation hidden by later release without rejecting valid transfers',async t=>{
+test('multiple invoices may associate the same expense without amount ceilings; old amounts remain historical metadata',async t=>{
  const f=fixture(t);await f.command({kind:'expense',expense:{category:'接待',date:'2026-10-12',merchant:'合成费用',amount:1000,note:''}});
- for(const number of ['A','B'])await f.command({kind:'invoice',invoice:invoice({number,amount:1000}),image:image(number)});
- await f.change('invoice-allocate',1,{allocations:[{expenseId:1,amount:1000}]});await f.change('invoice-allocate',1,{allocations:[]});await f.change('invoice-allocate',2,{allocations:[{expenseId:1,amount:1000}]});
+ for(const number of ['A','B'])await f.command({kind:'invoice',invoice:invoice({number,amount:1}),image:image(number)});
+ for(const id of [1,2])await f.change('invoice-link',id,{expenseIds:[1]});
  const saved=await f.ledger.backup(f.destination),original=fs.readFileSync(path.join(saved.directory,'database.sqlite'));verifyBackup(saved.directory);
- // Each invoice's own chain and current total remain valid, but the B allocation now
- // precedes A's release and would have exceeded the expense at that historical point.
- reseal(saved.directory,original,s=>{[s.invoiceEvents[3],s.invoiceEvents[4]]=[s.invoiceEvents[4],s.invoiceEvents[3]];});assert.throws(()=>verifyBackup(saved.directory),/超过费用/);
- const target=path.join(f.root,'rejected');assert.throws(()=>restoreBackup({backupDir:saved.directory,targetDir:target}),/超过费用/);assert.equal(fs.existsSync(target),false);
- reseal(saved.directory,original,s=>{s.invoiceEvents[2].after.allocations[0].expenseId=99;s.invoiceEvents[3].before.allocations[0].expenseId=99;});assert.throws(()=>verifyBackup(saved.directory),/分配引用/);
+ // Old allocation cents stay byte-for-byte and never become cash or reimbursement facts.
+ reseal(saved.directory,original,s=>{for(const record of [...s.invoices,...s.invoiceEvents.flatMap(event=>[event.before,event.after]).filter(Boolean)]){const ids=record.expenseIds;if(ids?.length){record.allocations=ids.map(expenseId=>({expenseId,amount:2000}));delete record.expenseIds;}}});
+ verifyBackup(saved.directory);const restored=restoreBackup({backupDir:saved.directory,targetDir:path.join(f.root,'legacy-associations')});
+ assert.equal(snapshot(restored.directory).cash.balance,-1000n);assert.equal(snapshot(restored.directory).state.invoices[0].allocations[0].amount,2000);
 });
 
 test('pending invoice corruption blocks managed reopening without modifying or repairing source state',async t=>{

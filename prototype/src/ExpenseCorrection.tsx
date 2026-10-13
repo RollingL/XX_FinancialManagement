@@ -39,7 +39,7 @@ export function ExpenseCorrectionHistory({state,expenseId,disabled=false}:{state
   <h3 id="correction-history-title">纠错记录</h3>
   {!events.length?<p className="help">暂无纠错记录。</p>:<>{pages.items.map(event=><article className="correction-event" key={event.requestId}>
    <header><strong>第 {event.revision} 次修订</strong><time dateTime={event.at}>{new Date(event.at).toLocaleString('zh-CN',{hour12:false})}</time></header>
-   <table><caption className="sr-only">第 {event.revision} 次费用纠错前后对照</caption><thead><tr><th scope="col">字段</th><th scope="col">纠错前</th><th scope="col">纠错后</th></tr></thead><tbody>{historyFields.map(([key,label])=><tr key={key}><th scope="row">{label}</th><td>{historyValue(event.before,key)}</td><td>{historyValue(event.after,key)}</td></tr>)}</tbody></table>
+   <table><caption className="sr-only">第 {event.revision} 次费用纠错前后对照</caption><thead><tr><th scope="col">字段</th><th scope="col">纠错前</th><th scope="col">纠错后</th></tr></thead><tbody>{historyFields.map(([key,label])=><tr key={key}><th scope="row">{label}</th><td>{historyValue(event.before,key)}</td><td>{event.after?historyValue(event.after,key):'已删除'}</td></tr>)}</tbody></table>
   </article>)}<Pagination pager={pages} label="纠错记录" disabled={disabled}/></>}
  </section>;
 }

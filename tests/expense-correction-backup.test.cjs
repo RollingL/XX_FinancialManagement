@@ -88,7 +88,6 @@ test('invalid event shape, values, stable fields and revision chains are rejecte
   ['changed invoice',s=>{s.expenseEvents[0].before.invoice=1;}],['unknown field changed',s=>{s.expenseEvents[0].before.legacy.values[1].preserved=false;}],['unknown field removed',s=>{delete s.expenseEvents[0].before.legacy;}],
   ['zero revision',s=>{s.expenseEvents[0].revision=0;}],['fractional revision',s=>{s.expenseEvents[0].revision=1.5;}],['first revision skipped',s=>{s.expenseEvents[0].revision=2;}],['revision duplicate',s=>{s.expenseEvents[1].revision=1;}],['revision gap',s=>{s.expenseEvents[1].revision=3;}],
   ['reordered history',s=>{s.expenseEvents.reverse();}],['broken before after chain',s=>{s.expenseEvents[1].before.note='not the first after';}],['last after differs',s=>{s.expenseEvents[1].after.merchant='not current';}],['no change',s=>{s.expenseEvents[0].after=structuredClone(s.expenseEvents[0].before);}],
-  ['unchanged nonzero invoice',s=>{for(const e of s.expenseEvents){e.before.invoice=1;e.after.invoice=1;}s.expenses[0].invoice=1;}],
  ];
  for(const [label,change] of cases){const state=JSON.parse(before.raw);change(state);const raw=JSON.stringify(state);mutate(file,db=>db.prepare('UPDATE trial_state SET json=?').run(raw));assert.throws(()=>inspectDatabase(file),undefined,label);assert.equal(snapshot(f.source).raw,raw,label);}
  mutate(file,db=>db.prepare('UPDATE trial_state SET json=?').run(before.raw));inspectDatabase(file);await f.reopen();assert.deepEqual(snapshot(f.source),before);

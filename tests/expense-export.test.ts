@@ -11,9 +11,9 @@ const expense=(id:number,changes:Partial<Expense>={}):Expense=>({id,date:'2026-1
 const ledger=(changes:Partial<LedgerState>={}):LedgerState=>({expenses:[expense(1),expense(2),expense(3)],batches:[],advances:[5000],...changes});
 const filters=(changes:Partial<ExpenseFilters>={}):ExpenseFilters=>({category:'全部费用',query:'',status:'全部状态',startDate:'',endDate:'',missing:false,...changes});
 const invoice=(id:number,allocations:Invoice['allocations']):Invoice=>({id,identityType:'number',number:`SYNTHETIC-${id}`,code:'',date:'2026-10-12',seller:'合成销方',buyer:'',amount:30000,note:'',attachmentIds:[`synthetic-${id}`],allocations,revision:1,createdAt:'2026-10-12T00:00:00.000Z'});
-const header='"费用编号","实际支出日期","费用类别","商户/采购摘要","备注","支出金额（元）","已报销金额（元）","待报销金额（元）","报销状态","已关联票额（元）","未覆盖票额（元）","发票状态"';
+const header='"费用编号","实际支出日期","费用类别","商户/采购摘要","备注","支出金额（元）","已报销金额（元）","待报销金额（元）","报销状态","关联发票编号","发票状态"';
 
-test('filtering spans all pages and combines category, merchant/note/id search, status, dates and missing coverage',()=>{
+test('filtering spans all pages and combines category, merchant/note/id search, status, dates and missing associations',()=>{
  const state=ledger({expenses:Array.from({length:14},(_,index)=>expense(index+1,{date:'2026-10-12',merchant:`合成 NORTH ${index+1}`})),batches:[{id:1,date:'2026-10-12',active:true,allocations:[{expenseId:8,amount:10000},{expenseId:10,amount:10001}]}],invoices:[invoice(1,[{expenseId:12,amount:10001}])]});
  const all=filterExpenses(state,filters());assert.equal(all.length,14);assert.equal(paginate(all,1).items.length,6);assert.equal(paginate(all,3).items.length,2);
  assert.equal(expenseCsv(state,all).split('\r\n').length,16);
@@ -45,36 +45,54 @@ test('invalid dates and reversed ranges report errors and fail closed without hi
  assert.equal(expenseFilterError(filters()),'');
 });
 
-test('reimbursement statuses use only active allocations and stay independent of invoice coverage',()=>{
+test('reimbursement statuses use only active allocations and stay independent of invoice associations',()=>{
  const batches:Batch[]=[{id:1,date:'2026-10-12',active:true,allocations:[{expenseId:2,amount:1},{expenseId:3,amount:10001}]},{id:2,date:'2026-10-12',active:false,allocations:[{expenseId:1,amount:10001},{expenseId:2,amount:10000}]}];
  const state=ledger({batches,invoices:[invoice(1,[{expenseId:1,amount:10001}])]});
  assert.deepEqual(state.expenses.map(row=>expenseStatus(row,batches)),['未报销','部分报销','已报销']);
  for(const [status,id] of [['未报销',1],['部分报销',2],['已报销',3]] as const)assert.deepEqual(filterExpenses(state,filters({status})).map(row=>row.id),[id]);
  assert.deepEqual(filterExpenses(state,filters({status:'unknown'})),[]);
  const lines=expenseCsv(state,state.expenses).split('\r\n');
- assert.ok(lines[1].includes(',100.01,0.00,100.01,"未报销",100.01,0.00,"已覆盖"'));
- assert.ok(lines[2].includes(',100.01,0.01,100.00,"部分报销",0.00,100.01,"无发票"'));
- assert.ok(lines[3].includes(',100.01,100.01,0.00,"已报销",0.00,100.01,"无发票"'));
+ assert.ok(lines[1].includes(',100.01,0.00,100.01,"未报销","FP-001","已关联"'));
+ assert.ok(lines[2].includes(',100.01,0.01,100.00,"部分报销","","无发票"'));
+ assert.ok(lines[3].includes(',100.01,100.01,0.00,"已报销","","无发票"'));
 });
 
-test('legacy invoice baseline and current allocations share coverage while cleared historical allocations do not',()=>{
+test('legacy markers and fractional old allocations count as associations while cleared history does not',()=>{
  const state=ledger({expenses:[expense(1,{invoice:10001}),expense(2,{invoice:3000}),expense(3),expense(4)],invoices:[invoice(1,[{expenseId:2,amount:2001},{expenseId:3,amount:10001}])]});
  const old=invoice(2,[{expenseId:4,amount:10001}]),cleared={...old,allocations:[],revision:2};state.invoices!.push(cleared);
  state.invoiceEvents=[{requestId:'synthetic-history',action:'invoice-allocate',at:'2026-10-12T00:00:00.000Z',invoiceId:2,revision:2,before:old,after:cleared}];
- assert.deepEqual(filterExpenses(state,filters({missing:true})).map(row=>row.id),[2,4]);
+ assert.deepEqual(filterExpenses(state,filters({missing:true})).map(row=>row.id),[4]);
  const lines=expenseCsv(state,state.expenses).split('\r\n');
- assert.ok(lines[1].endsWith(',100.01,0.00,"已覆盖"'));
- assert.ok(lines[2].endsWith(',50.01,50.00,"部分覆盖"'));
- assert.ok(lines[3].endsWith(',100.01,0.00,"已覆盖"'));
- assert.ok(lines[4].endsWith(',0.00,100.01,"无发票"'));
- const legacy=ledger({expenses:[expense(1,{invoice:1})]});assert.ok(expenseCsv(legacy,legacy.expenses).includes(',0.01,100.00,"部分覆盖"'));
+ assert.ok(lines[1].endsWith(',"legacy标记","已关联"'));
+ assert.ok(lines[2].endsWith(',"FP-001;legacy标记","已关联"'));
+ assert.ok(lines[3].endsWith(',"FP-001","已关联"'));
+ assert.ok(lines[4].endsWith(',"","无发票"'));
+ const legacy=ledger({expenses:[expense(1,{invoice:1})]});assert.ok(expenseCsv(legacy,legacy.expenses).endsWith(',"legacy标记","已关联"\r\n'));
+ assert.deepEqual(filterExpenses(legacy,filters({missing:true})),[]);
+ legacy.expenses[0].invoice=0;
+ assert.deepEqual(filterExpenses(legacy,filters({missing:true})).map(row=>row.id),[1]);
+ assert.ok(expenseCsv(legacy,legacy.expenses).endsWith(',"","无发票"\r\n'));
+});
+
+test('pure expense IDs link multiple invoices without amounts and explicit unlink overrides stale legacy allocations',()=>{
+ const old=invoice(1,[{expenseId:1,amount:1}]);
+ const state=ledger({invoices:[{...old,expenseIds:[]},{...invoice(2,[]),expenseIds:[2,3]},{...invoice(3,[]),expenseIds:[2]}]});
+ const before=structuredClone(state),lines=expenseCsv(state,state.expenses).split('\r\n');
+ assert.deepEqual(filterExpenses(state,filters({missing:true})).map(row=>row.id),[1]);
+ assert.ok(lines[1].endsWith(',"","无发票"'));
+ assert.ok(lines[2].endsWith(',"FP-002;FP-003","已关联"'));
+ assert.ok(lines[3].endsWith(',"FP-002","已关联"'));
+ assert.deepEqual(state,before);
+ state.invoiceEvents=[{requestId:'synthetic-unlink',action:'invoice-link',at:'2026-10-12T00:00:00.000Z',invoiceId:1,revision:2,before:old,after:state.invoices![0]}];
+ assert.deepEqual(filterExpenses(state,filters({missing:true})).map(row=>row.id),[1]);
+ assert.deepEqual(before.invoices,state.invoices);
 });
 
 test('CSV contains the fixed whitelist with BOM, CRLF, quoted text and exact integer-cent values without grouping',()=>{
  const state=ledger({expenses:[expense(Number.MAX_SAFE_INTEGER,{amount:Number.MAX_SAFE_INTEGER,invoice:1})],batches:[{id:1,date:'2026-10-12',active:true,allocations:[{expenseId:Number.MAX_SAFE_INTEGER,amount:1}]}]});
  Object.assign(state.expenses[0],{attachmentId:'DO-NOT-EXPORT-ATTACHMENT',path:'/private/DO-NOT-EXPORT',unexpected:'DO-NOT-EXPORT-UNKNOWN'});
  const csv=expenseCsv(state,state.expenses);
- assert.equal(csv,'\uFEFF'+header+'\r\n9007199254740991,"2026-10-12","接待","合成商户 9007199254740991","合成备注",90071992547409.91,0.01,90071992547409.90,"部分报销",0.01,90071992547409.90,"部分覆盖"\r\n');
+ assert.equal(csv,'\uFEFF'+header+'\r\n9007199254740991,"2026-10-12","接待","合成商户 9007199254740991","合成备注",90071992547409.91,0.01,90071992547409.90,"部分报销","legacy标记","已关联"\r\n');
  assert.equal(Buffer.from(csv,'utf8').subarray(0,3).toString('hex'),'efbbbf');assert.ok(!csv.includes('DO-NOT-EXPORT'));
  const invalid=expense(1,{amount:Number.MAX_SAFE_INTEGER+1});assert.throws(()=>expenseCsv(ledger({expenses:[invalid]}),[invalid]),/安全范围/);
 });
@@ -82,7 +100,7 @@ test('CSV contains the fixed whitelist with BOM, CRLF, quoted text and exact int
 test('quotes, commas, CRLF and Chinese text round-trip in their own quoted cells without changing the source',()=>{
  const original=expense(1,{merchant:'合成商户, "甲"',note:'第一行\r\n第二行, "乙"'}),state=ledger({expenses:[original]});
  const csv=expenseCsv(state,state.expenses);
- assert.equal(csv,'\uFEFF'+header+'\r\n1,"2026-10-12","接待","合成商户, ""甲""","第一行\r\n第二行, ""乙""",100.01,0.00,100.01,"未报销",0.00,100.01,"无发票"\r\n');
+ assert.equal(csv,'\uFEFF'+header+'\r\n1,"2026-10-12","接待","合成商户, ""甲""","第一行\r\n第二行, ""乙""",100.01,0.00,100.01,"未报销","","无发票"\r\n');
  assert.equal(state.expenses[0].note,'第一行\r\n第二行, "乙"');
 });
 
