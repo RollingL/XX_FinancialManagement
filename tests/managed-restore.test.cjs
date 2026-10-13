@@ -10,11 +10,11 @@ async function plan(ledger,saved){const state=await ledger.command({kind:'read'}
 test('restore previews, backs up current facts, switches identity, rejects stale drafts and retries after reopen',async t=>{
  const f=fixture(t);let ledger=f.open();await advance(ledger,101);const saved=await backup(ledger);const current=await advance(ledger,202),preview=await plan(ledger,saved);
  assert.equal(preview.summary.totalAdvanceCents,'101');const input={kind:'restore-backup',requestId:randomUUID(),token:preview.token,generation:preview.generation,confirmation:'恢复备份'};
- const result=await ledger.command(input);assert.equal(result.completed,true);assert.notEqual(result.generation,current.generation);const restoredRoot=ledger.root;
+ const result=await ledger.command(input);assert.equal(result.completed,true);assert.notEqual(result.generation,current.generation);const restoredRoot=ledger.root;const {warning,...receipt}=result;if(warning)assert.match(warning,/持久化未确认|原连接关闭未确认/);
  assert.equal(verifyBackup(result.backupDirectory).summary.totalAdvanceCents,'303');assert.deepEqual((await ledger.command({kind:'read'})).advances,[101]);
  await assert.rejects(ledger.command({kind:'advance',requestId:randomUUID(),generation:current.generation,advance:{amount:1,date:'2026-10-13',note:''}}),/代际已变化/);
- assert.deepEqual(await ledger.command(input),result);await assert.rejects(ledger.command({...input,generation:result.generation}),/原确认内容不一致/);await ledger.close();ledger=f.open();assert.equal(ledger.root,restoredRoot);assert.deepEqual(await ledger.command(input),result);await assert.rejects(ledger.command({...input,generation:result.generation}),/原确认内容不一致/);
- await advance(ledger,303);assert.deepEqual((await ledger.command({kind:'read'})).advances,[101,303]);assert.deepEqual(await ledger.command(input),result);await ledger.close();
+ assert.deepEqual(await ledger.command(input),receipt);await assert.rejects(ledger.command({...input,generation:result.generation}),/原确认内容不一致/);await ledger.close();ledger=f.open();assert.equal(ledger.root,restoredRoot);assert.deepEqual(await ledger.command(input),receipt);await assert.rejects(ledger.command({...input,generation:result.generation}),/原确认内容不一致/);
+ await advance(ledger,303);assert.deepEqual((await ledger.command({kind:'read'})).advances,[101,303]);assert.deepEqual(await ledger.command(input),receipt);await ledger.close();
 });
 test('stale state/source, wrong confirmation, and foreign token leave current ledger unchanged',async t=>{
  const f=fixture(t),ledger=f.open();await advance(ledger,100);const saved=await backup(ledger),preview=await plan(ledger,saved),input={kind:'restore-backup',requestId:randomUUID(),token:preview.token,generation:preview.generation,confirmation:'恢复备份'};
