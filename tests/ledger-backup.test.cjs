@@ -185,6 +185,13 @@ test('backup publication cannot replace a competing empty backup directory',asyn
  await assert.rejects(f.backup(),{code:'EEXIST'});assert.equal(fs.lstatSync(target).ino,competitor.ino);assert.deepEqual(fs.readdirSync(target),[]);assert.deepEqual(fs.readdirSync(f.destination),[path.basename(target)]);
 });
 
+test('published backup and restore files are flushed through writable handles required by Windows',async t=>{
+ const f=fixture(t),open=fs.openSync,sync=fs.fsyncSync,flags=new Map();let checked=0;
+ t.mock.method(fs,'openSync',function(file,mode,...args){const fd=open.call(this,file,mode,...args);flags.set(fd,mode);return fd;});
+ t.mock.method(fs,'fsyncSync',function(fd){if(fs.fstatSync(fd).isFile()){const mode=flags.get(fd);assert.ok(typeof mode==='string'?/[wa+]/.test(mode):!!(mode&(fs.constants.O_WRONLY|fs.constants.O_RDWR)),'file fsync needs write access');checked++;}return sync.call(this,fd);});
+ const saved=await f.backup();restoreBackup({backupDir:saved.directory,targetDir:path.join(f.root,'writable-flush')});assert.ok(checked>=6);
+});
+
 test('fsync failure after a completion marker retains the generated path and rejects success',async t=>{
  const f=fixture(t),before=await populated(f),saved=await f.backup(),original=fs.fsyncSync,target=path.join(f.root,'durability-uncertain');let mode='backup',fired=false;
  t.mock.method(fs,'fsyncSync',function(fd){

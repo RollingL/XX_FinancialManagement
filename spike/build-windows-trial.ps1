@@ -165,7 +165,7 @@ try {
 
     Invoke-Native -File $node -Arguments @('--test', 'tests/windows-package-check.test.cjs', 'tests/electron-main.test.cjs',
         'tests/windows-portable.test.cjs', 'tests/ocr-service.test.cjs', 'tests/expense-export.test.ts', 'tests/expense-download.test.ts',
-        'tests/managed-restore.test.cjs', 'tests/record-backup.test.cjs', 'tests/record-crud.test.cjs', 'tests/expense-invoice-edit.test.cjs')
+        'tests/managed-restore.test.cjs', 'tests/record-backup.test.cjs', 'tests/record-crud.test.cjs', 'tests/expense-invoice-edit.test.cjs', 'tests/ledger-backup.test.cjs')
     Invoke-Native -File $venvPython -Arguments @('-B', '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_ocr_stdio.py', '-v')
     Invoke-Native -File $node -Arguments @('-e', 'require("./spike/windows-package-check.cjs").checkWindowsPackage(process.cwd(),"x64");console.log("Windows package inputs checked; target acceptance is still pending")')
     Invoke-Native -File $npm -Arguments @('run', 'package', '--', '--platform=win32', '--arch=x64')

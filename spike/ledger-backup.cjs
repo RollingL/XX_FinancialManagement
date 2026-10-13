@@ -44,7 +44,8 @@ function fileBytes(file,max){
 }
 function jsonFile(file,max){try{return JSON.parse(fileBytes(file,max).toString('utf8'));}catch(e){fail(`JSON 文件无效：${e.message}`);}}
 function writeFile(file,bytes){const fd=fs.openSync(file,'wx',0o600);try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
-function syncFile(file){const fd=fs.openSync(file,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0));try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
+// Windows FlushFileBuffers requires a writable handle; these are newly copied owned files.
+function syncFile(file){const fd=fs.openSync(file,fs.constants.O_RDWR|(fs.constants.O_NOFOLLOW||0));try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
 function syncDirectory(dir){
  let fd;try{fd=fs.openSync(dir,'r');fs.fsyncSync(fd);}catch(e){
   // Windows directory fsync is not portable; Windows durability remains an explicit acceptance item.
