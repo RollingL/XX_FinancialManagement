@@ -69,35 +69,35 @@ function Assert-RegularFile {
 }
 
 try {
-    $node = (Get-Command node.exe -CommandType Application).Source
-    $npm = (Get-Command npm.cmd -CommandType Application).Source
-    $python = (Get-Command python.exe -CommandType Application).Source
-    Invoke-Native $node @('-e', 'if(process.version!=="v26.10.0"||process.platform!=="win32"||process.arch!=="x64")throw Error("Expected Node 26.10.0 Windows x64");console.log(JSON.stringify({node:process.version,platform:process.platform,arch:process.arch}))')
-    Invoke-Native $python @('-B', '-c', 'import sys,struct,platform; assert sys.version_info[:2]==(3,12) and sys.platform=="win32" and struct.calcsize("P")==8; print(sys.version); print(platform.platform())')
-    Invoke-Native $npm @('--version')
-    Invoke-Native $npm @('ci', '--ignore-scripts', '--no-audit', '--no-fund')
+    $node = (Get-Command node.exe -CommandType Application | Select-Object -First 1).Source
+    $npm = (Get-Command npm.cmd -CommandType Application | Select-Object -First 1).Source
+    $python = (Get-Command python.exe -CommandType Application | Select-Object -First 1).Source
+    Invoke-Native -File $node -Arguments @('-e', 'if(process.version!=="v26.10.0"||process.platform!=="win32"||process.arch!=="x64")throw Error("Expected Node 26.10.0 Windows x64");console.log(JSON.stringify({node:process.version,platform:process.platform,arch:process.arch}))')
+    Invoke-Native -File $python -Arguments @('-B', '-c', 'import sys,struct,platform; assert sys.version_info[:2]==(3,12) and sys.platform=="win32" and struct.calcsize("P")==8; print(sys.version); print(platform.platform())')
+    Invoke-Native -File $npm -Arguments @('--version')
+    Invoke-Native -File $npm -Arguments @('ci', '--ignore-scripts', '--no-audit', '--no-fund')
 
     # Electron 44.7 exposes this explicit installer; no dependency lifecycle scripts run.
     Assert-RegularFile (Join-Path $workspace 'node_modules/electron/install.js')
     Assert-RegularFile (Join-Path $workspace 'node_modules/electron/checksums.json')
     $env:ELECTRON_INSTALL_PLATFORM = 'win32'
     $env:ELECTRON_INSTALL_ARCH = 'x64'
-    Invoke-Native $node @('node_modules/electron/install.js')
-    Invoke-Native $node @('-e', 'const fs=require("node:fs"),p=require("node:path"),v=require("./package.json").devDependencies.electron;const exe=require("electron");if(p.basename(exe)!=="electron.exe"||fs.readFileSync(p.join(p.dirname(exe),"version"),"utf8").trim().replace(/^v/,"")!==v)throw Error("Electron download/version mismatch");console.log("Electron binary checked: "+v)')
+    Invoke-Native -File $node -Arguments @('node_modules/electron/install.js')
+    Invoke-Native -File $node -Arguments @('-e', 'const fs=require("node:fs"),p=require("node:path"),v=require("./package.json").devDependencies.electron;const exe=require("electron");if(p.basename(exe)!=="electron.exe"||fs.readFileSync(p.join(p.dirname(exe),"version"),"utf8").trim().replace(/^v/,"")!==v)throw Error("Electron download/version mismatch");console.log("Electron binary checked: "+v)')
 
-    Invoke-Native $python @('-B', '-m', 'venv', '.venv-ocr')
+    Invoke-Native -File $python -Arguments @('-B', '-m', 'venv', '.venv-ocr')
     $venvPython = Join-Path $workspace '.venv-ocr/Scripts/python.exe'
     $env:PYTHONDONTWRITEBYTECODE = '1'
     $env:PYTHONUTF8 = '1'
     $env:PIP_DISABLE_PIP_VERSION_CHECK = '1'
-    Invoke-Native $venvPython @('-B', '-m', 'pip', 'install', '--require-virtualenv', '--only-binary=:all:', '-r', 'spike/requirements.txt')
-    Invoke-Native $venvPython @('-B', '-m', 'pip', 'check')
-    Invoke-Native $venvPython @('-B', '-m', 'pip', 'freeze', '--all') |
+    Invoke-Native -File $venvPython -Arguments @('-B', '-m', 'pip', 'install', '--require-virtualenv', '--only-binary=:all:', '-r', 'spike/requirements.txt')
+    Invoke-Native -File $venvPython -Arguments @('-B', '-m', 'pip', 'check')
+    Invoke-Native -File $venvPython -Arguments @('-B', '-m', 'pip', 'freeze', '--all') |
         Set-Content -LiteralPath (Join-Path $logRoot 'requirements-windows-x64.resolved.txt') -Encoding utf8
-    Invoke-Native $venvPython @('-B', 'spike/prepare_models.py')
+    Invoke-Native -File $venvPython -Arguments @('-B', 'spike/prepare_models.py')
     Push-Location -LiteralPath (Join-Path $workspace 'spike')
     try {
-        Invoke-Native $venvPython @('-B', '-m', 'PyInstaller', 'ocr-probe.spec', '--distpath', 'ocr-dist', '--workpath', 'ocr-build')
+        Invoke-Native -File $venvPython -Arguments @('-B', '-m', 'PyInstaller', 'ocr-probe.spec', '--distpath', 'ocr-dist', '--workpath', 'ocr-build')
     } finally { Pop-Location }
 
     $internal = Join-Path $workspace 'spike/ocr-dist/ocr-probe/_internal'
@@ -119,7 +119,7 @@ try {
     # Never copy from System32, download DLLs, run vc_redist, or change the runner's installation.
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
     Assert-RegularFile $vswhere
-    $vsRoots = @(Invoke-Native $vswhere @('-latest', '-products', '*', '-version', '[17.0,18.0)', '-requires', 'Microsoft.VisualStudio.Component.VC.Redist.14.Latest', '-property', 'installationPath'))
+    $vsRoots = @(Invoke-Native -File $vswhere -Arguments @('-latest', '-products', '*', '-version', '[17.0,18.0)', '-requires', 'Microsoft.VisualStudio.Component.VC.Redist.14.Latest', '-property', 'installationPath'))
     if ($vsRoots.Count -ne 1 -or ![IO.Path]::IsPathFullyQualified($vsRoots[0])) {
         throw 'Cannot resolve one installed Visual Studio 2022 official redistributable source; CRT gate failed.'
     }
@@ -163,13 +163,13 @@ try {
     $crtReport | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $reportFile -Encoding utf8
     [IO.File]::Copy($reportFile, (Join-Path $logRoot 'msvc-runtime-provenance.json'), $false)
 
-    Invoke-Native $node @('--test', 'tests/windows-package-check.test.cjs', 'tests/electron-main.test.cjs',
+    Invoke-Native -File $node -Arguments @('--test', 'tests/windows-package-check.test.cjs', 'tests/electron-main.test.cjs',
         'tests/windows-portable.test.cjs', 'tests/ocr-service.test.cjs', 'tests/expense-export.test.ts', 'tests/expense-download.test.ts')
-    Invoke-Native $venvPython @('-B', '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_ocr_stdio.py', '-v')
-    Invoke-Native $node @('-e', 'require("./spike/windows-package-check.cjs").checkWindowsPackage(process.cwd(),"x64");console.log("Windows package inputs checked; target acceptance is still pending")')
-    Invoke-Native $npm @('run', 'package', '--', '--platform=win32', '--arch=x64')
+    Invoke-Native -File $venvPython -Arguments @('-B', '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_ocr_stdio.py', '-v')
+    Invoke-Native -File $node -Arguments @('-e', 'require("./spike/windows-package-check.cjs").checkWindowsPackage(process.cwd(),"x64");console.log("Windows package inputs checked; target acceptance is still pending")')
+    Invoke-Native -File $npm -Arguments @('run', 'package', '--', '--platform=win32', '--arch=x64')
     [IO.File]::Copy((Join-Path $logRoot 'requirements-windows-x64.resolved.txt'), (Join-Path $workspace 'out/windows-python-freeze.txt'), $false)
-    Invoke-Native $node @('spike/prepare-windows-portable.cjs')
+    Invoke-Native -File $node -Arguments @('spike/prepare-windows-portable.cjs')
 
     $candidateName = "Qianlai-Windows10-x64-$($env:GITHUB_SHA.Substring(0, 12))"
     $portableRoot = Join-Path $workspace 'out/windows-offline'
@@ -194,7 +194,7 @@ try {
     }
     Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot
     $extracted = Join-Path $extractRoot $candidateName
-    Invoke-Native $node @('spike/prepare-windows-portable.cjs', '--verify-extracted', $extracted) |
+    Invoke-Native -File $node -Arguments @('spike/prepare-windows-portable.cjs', '--verify-extracted', $extracted) |
         Tee-Object -FilePath (Join-Path $logRoot 'extracted-runner-probe.json')
     Write-Host 'ZIP checksum, extracted inventory and Windows Server runner probes passed. Clean offline Windows 10 acceptance remains unverified.'
     Write-Host "Portable archive: $archive"
