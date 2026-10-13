@@ -6,6 +6,22 @@ const os=require('node:os');
 const {execFile}=require('node:child_process');
 const {promisify}=require('node:util');
 const {pathToFileURL}=require('node:url');
+// Only the newly marked Mac test bundle defaults to its own sibling data directory.
+function configureMacTrial(){
+ if(!app.isPackaged||process.platform!=='darwin'||process.env.XX_FINANCE_USER_DATA_DIR!==undefined)return;
+ const file=path.join(process.resourcesPath,'mac-trial.json');if(!fs.existsSync(file))return;
+ const stat=fs.lstatSync(file);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>4096)throw Error('Mac 试用标识无效');
+ const marker=JSON.parse(fs.readFileSync(file,'utf8'));
+ if(Object.keys(marker).sort().join(',')!=='buildId,format'||marker.format!==1||typeof marker.buildId!=='string'||!/^[a-f0-9-]{36}$/.test(marker.buildId))throw Error('Mac 试用标识无效');
+ const root=path.resolve(process.resourcesPath,'../../../mac-trial-data'),identity=path.join(root,'trial-marker.txt');
+ if(fs.existsSync(root)){
+  const existing=fs.lstatSync(root),tag=fs.lstatSync(identity);if(!existing.isDirectory()||existing.isSymbolicLink()||!tag.isFile()||tag.isSymbolicLink()||tag.size>128||fs.readFileSync(identity,'utf8').trim()!==marker.buildId)throw Error('已有目录不属于本 Mac 试用包，停止启动');
+ }else{fs.mkdirSync(root,{mode:0o700});fs.writeFileSync(identity,marker.buildId+'\n',{flag:'wx',mode:0o600});}
+ const user=path.join(root,'user-data'),backups=path.join(root,'backups');
+ for(const folder of [user,backups]){if(!fs.existsSync(folder))fs.mkdirSync(folder,{mode:0o700});const stat=fs.lstatSync(folder);if(!stat.isDirectory()||stat.isSymbolicLink())throw Error('Mac 试用目录无效');}
+ Object.assign(process.env,{XX_FINANCE_MANAGED_TRIAL:'1',XX_FINANCE_USER_DATA_DIR:user,XX_FINANCE_DATA_DIR:path.join(user,'ledger'),XX_FINANCE_BACKUP_DIR:backups});
+}
+try{configureMacTrial();}catch(error){console.error('Mac 隔离试用配置无效：'+error.message);app.exit(1);throw error;}
 const isProbe=process.argv.includes('--probe');
 const managed=process.env.XX_FINANCE_MANAGED_TRIAL==='1';
 const userData=process.env.XX_FINANCE_USER_DATA_DIR,dataDir=process.env.XX_FINANCE_DATA_DIR,backupDestination=process.env.XX_FINANCE_BACKUP_DIR;
@@ -31,13 +47,14 @@ app.whenReady().then(async()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'xx-finance-probe-'));
   try{
    const sqlite=await require('./sqlite-probe.cjs')(dir);
+   if(sqlite?.status!=='passed')throw Error('SQLite 依赖探针未通过');
    const report={sqlite,packaged:app.isPackaged,ocr:{status:'not run'}};
    const root=app.isPackaged?process.resourcesPath:path.join(__dirname,'ocr-dist');
    const exe=path.join(root,'ocr-probe',process.platform==='win32'?'ocr-probe.exe':'ocr-probe');
-   if(fs.existsSync(exe)){
-    const fixture=app.isPackaged?path.join(process.resourcesPath,'ocr-sample.png'):path.join(__dirname,'fixtures','ocr-sample.png');
-    const {stdout}=await promisify(execFile)(exe,[fixture],{timeout:60000,maxBuffer:1024*1024});report.ocr=JSON.parse(stdout);
-   }
+   if(!fs.existsSync(exe))throw Error('缺少本地 OCR 辅助程序，依赖探针未通过');
+   const fixture=app.isPackaged?path.join(process.resourcesPath,'ocr-sample.png'):path.join(__dirname,'fixtures','ocr-sample.png');
+   const {stdout}=await promisify(execFile)(exe,[fixture],{timeout:60000,maxBuffer:1024*1024});report.ocr=JSON.parse(stdout);
+   if(report.ocr?.status!=='passed')throw Error('OCR 依赖探针未通过');
    console.log(JSON.stringify(report,null,2));app.exit(0);
   }catch(error){console.error(error);app.exit(1);}finally{fs.rmSync(dir,{recursive:true,force:true});}return;
  }
@@ -50,7 +67,16 @@ app.whenReady().then(async()=>{
  ipcMain.handle('ledger:command',async(event,payload)=>{
   if(!trusted(event))throw Error('拒绝非主窗口请求');
   if(closing)throw Error('应用正在关闭，请稍后重新打开');
-  const pending=Promise.resolve().then(()=>ledger.command(payload));pendingLedger.add(pending);
+  const pending=Promise.resolve().then(async()=>{
+   if(payload?.kind==='choose-restore'){
+    if(!managed||Object.keys(payload).sort().join(',')!=='generation,kind'||typeof payload.generation!=='string')throw Object.assign(Error('恢复选择请求无效'),{status:422});
+    const selected=await dialog.showOpenDialog(win,{title:'选择完整备份目录',properties:['openDirectory']});
+    if(selected.canceled)return null;
+    if(closing||selected.filePaths.length!==1)throw Object.assign(Error('恢复选择已取消或应用正在关闭'),{status:422});
+    return ledger.command({kind:'prepare-restore',generation:payload.generation,backup:selected.filePaths[0]});
+   }
+   return ledger.command(payload);
+  });pendingLedger.add(pending);
   try{return await pending;}catch(e){throw Error(e.status?e.message:'本地读写失败，请保留表单并重试');}finally{pendingLedger.delete(pending);}
  });
  ipcMain.handle('ocr:recognize',async(event,payload)=>{

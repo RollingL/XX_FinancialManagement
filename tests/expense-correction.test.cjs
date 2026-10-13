@@ -41,17 +41,14 @@ test('metadata correction changes no fund amount and preserves ID, invoice, atta
  const saved=await snapshot(f);assert.deepEqual(saved.attachments,before.attachments);assert.deepEqual(saved.files,before.files);assertEvent(f,after.expenseEvents[0],input,before.state.expenses[0],after.expenses[0],1);
 });
 
-test('active, cancelled and deleted reimbursement history each forbid correction even when the form snapshot is current',async t=>{
- for(const history of ['active','cancelled','deleted']){
-  const f=await fixture(t),state=await f.ledger.command({kind:'batch',requestId:randomUUID(),date:'2026-10-04',allocations:[{expenseId:1,amount:500}]}),id=state.batches.at(-1).id;
-  if(history!=='active')await f.ledger.command({kind:history==='cancelled'?'cancel':'delete-batch',requestId:randomUUID(),id});
-  const before=await snapshot(f);await assert.rejects(f.ledger.command(request(before.state,{amount:1})),/已有报销历史/);assert.deepEqual(await snapshot(f),before);
- }
-});
-
-test('invoice amounts or a missing/non-numeric invoice field forbid corrections without touching any facts',async t=>{
- const f=await fixture(t);
- for(const invoice of [1,undefined,null,'0']){const current=await read(f);if(invoice===undefined)delete current.expenses[0].invoice;else current.expenses[0].invoice=invoice;replaceState(f,current);const before=await snapshot(f);await assert.rejects(f.ledger.command(request(before.state,{amount:1})),/已有票额/);assert.deepEqual(await snapshot(f),before);}
+test('effective allocations bound correction amounts; inactive history and invoice amounts do not lock editing',async t=>{
+ const f=await fixture(t),state=await read(f);
+ await assert.rejects(f.ledger.command(request(state,{amount:4999},2)),/当前有效报销金额/);
+ let after=await f.ledger.command(request(state,{amount:5000},2));
+ assert.deepEqual(after.batches,state.batches);assert.deepEqual(after.batchEvents,state.batchEvents);
+ after=await f.ledger.command(request(after,{merchant:'合成改摘要'},2));assert.equal(after.expenses[1].merchant,'合成改摘要');
+ after.expenses[0].invoice=999999;replaceState(f,after);
+ const corrected=await f.ledger.command(request(after,{amount:1}));assert.equal(corrected.expenses[0].amount,1);assert.equal(corrected.expenses[0].invoice,999999);
 });
 
 test('invalid amounts, dates, fields, IDs and revision inputs reject without state, audit or operation changes',async t=>{

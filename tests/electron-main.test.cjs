@@ -8,13 +8,22 @@ function deferred(){let resolve,reject;const promise=new Promise((done,fail)=>{r
 async function flush(){for(let i=0;i<8;i++)await Promise.resolve();await new Promise(setImmediate);}
 function event(){return {prevented:0,preventDefault(){this.prevented++;}};}
 function harness(options={}){
- const calls=[],errors=[],exitCodes=[],dialogs=[],handlers=new Map(),windows=[],ready=deferred(),quitEvents=[];
+ const calls=[],errors=[],logs=[],exitCodes=[],dialogs=[],handlers=new Map(),windows=[],ready=deferred(),quitEvents=[];
  const files=new Map([[USER,'directory'],[DATA,'directory'],[BACKUP,'directory'],...(options.files||[])]);
+ const platform=options.platform||process.platform,resources=path.join(base,'resources');
+ const worker=path.join(options.packaged?resources:path.join(path.dirname(mainFile),'ocr-dist'),'ocr-probe',platform==='win32'?'ocr-probe.exe':'ocr-probe');
+ if(options.probe&&!options.workerMissing)files.set(worker,'file');
  for(const missing of options.missing||[])files.delete(missing);
+ const contents=new Map(options.contents||[]);
  const fakeFs={
-  lstatSync(file){const kind=files.get(file);if(!kind)throw Object.assign(Error('synthetic ENOENT'),{code:'ENOENT'});return {isDirectory:()=>kind==='directory',isFile:()=>kind==='file',isSymbolicLink:()=>kind==='symlink'};},
+  readFileSync(file){if(!contents.has(file))throw Error('synthetic missing contents');return contents.get(file);},
+  writeFileSync(file,value){calls.push({kind:'writeFile',file});contents.set(file,value);files.set(file,'file');},
+  lstatSync(file){const kind=files.get(file);if(!kind)throw Object.assign(Error('synthetic ENOENT'),{code:'ENOENT'});return {isDirectory:()=>kind==='directory',isFile:()=>kind==='file',isSymbolicLink:()=>kind==='symlink',size:contents.get(file)?.length||10};},
   realpathSync(file){return file;},
   mkdirSync(file){calls.push({kind:'mkdir',file});if(!files.has(file))files.set(file,'directory');},
+  existsSync:file=>files.has(file),
+  mkdtempSync(prefix){const file=path.join(base,'probe-temp');calls.push({kind:'mkdtemp',prefix,file});return file;},
+  rmSync(file,settings){calls.push({kind:'rm',file,settings});},
  };
  const app=new EventEmitter(),paths={userData:DEFAULT_USER};app.isPackaged=!!options.packaged;
  app.getPath=name=>paths[name]||path.join(base,name);
@@ -34,24 +43,60 @@ function harness(options={}){
  }
  const ipcMain=new EventEmitter();ipcMain.handle=(name,handler)=>{assert.equal(handlers.has(name),false);handlers.set(name,handler);};
  function factory(kind,args){calls.push({kind,args});if(options.ledgerError)throw options.ledgerError;return ledger;}
+ const fakeExecFile=()=>{throw Error('Native process execution is forbidden in this test');};
+ fakeExecFile[require('node:util').promisify.custom]=async(file,args,settings)=>{
+  if(!options.probe)throw Error('Unexpected probe execution');
+  calls.push({kind:'execFile',file,args,settings});
+  return {stdout:JSON.stringify(Object.hasOwn(options,'ocrResult')?options.ocrResult:{status:'passed'}),stderr:''};
+ };
  function fakeRequire(name){
-  if(name==='electron')return {app,BrowserWindow,ipcMain,dialog:{showErrorBox:(title,message)=>dialogs.push({title,message})}};
+  if(name==='electron')return {app,BrowserWindow,ipcMain,dialog:{showOpenDialog:async(win,settings)=>{calls.push({kind:'choose',win,settings});return options.choose?options.choose():{canceled:true,filePaths:[]};},showErrorBox:(title,message)=>dialogs.push({title,message})}};
   if(name==='./ocr-service.cjs')return {MAX_BYTES:20*1024*1024,createOcrService:(...args)=>{calls.push({kind:'createOcrService',args});return service;}};
   if(name==='./trial-ledger.cjs')return {createLedger:(...args)=>factory('createLedger',args)};
   if(name==='./managed-ledger.cjs')return {createManagedLedger:(...args)=>factory('createManagedLedger',args)};
+  if(name==='./sqlite-probe.cjs')return async directory=>{calls.push({kind:'sqliteProbe',directory});return Object.hasOwn(options,'sqliteResult')?options.sqliteResult:{status:'passed'};};
   if(name==='node:fs')return fakeFs;
-  if(name==='node:child_process')return {execFile(){throw Error('Native process execution is forbidden in this test');}};
+  if(name==='node:child_process')return {execFile:fakeExecFile};
   if(['node:path','node:os','node:util','node:url'].includes(name))return require(name);
   throw Error(`Unexpected module in isolated Electron test: ${name}`);
  }
  let startupError;
- try{vm.runInNewContext(source,{require:fakeRequire,__dirname:path.dirname(mainFile),process:{argv:['synthetic-electron',mainFile],env:{...(options.env||{})},platform:process.platform,resourcesPath:path.join(base,'resources')},console:{log(){},error:value=>errors.push(String(value))},Buffer,ArrayBuffer,AbortController,Promise},{filename:mainFile});}catch(error){startupError=error;}
+ try{vm.runInNewContext(source,{require:fakeRequire,__dirname:path.dirname(mainFile),process:{argv:['synthetic-electron',mainFile,...(options.probe?['--probe']:[])],env:{...(options.env||{})},platform,resourcesPath:resources},console:{log:value=>logs.push(String(value)),error:value=>errors.push(String(value))},Buffer,ArrayBuffer,AbortController,Promise},{filename:mainFile});}catch(error){startupError=error;}
  const count=kind=>calls.filter(call=>call.kind===kind).length;
  const trusted=()=>({sender:windows[0].webContents,senderFrame:windows[0].webContents.mainFrame});
- return {app,service,ledger,calls,errors,exitCodes,dialogs,handlers,windows,paths,quitEvents,startupError,count,trusted,async start(){ready.resolve();await flush();},beforeQuit(){const attempt=event();app.emit('before-quit',attempt);return attempt;}};
+ return {app,service,ledger,calls,errors,logs,exitCodes,dialogs,handlers,windows,paths,quitEvents,startupError,count,trusted,async start(){ready.resolve();await flush();},beforeQuit(){const attempt=event();app.emit('before-quit',attempt);return attempt;}};
 }
 
 // Every runtime path below is synthetic; filesystem and ledger modules are replaced before execution.
+function assertProbeIsolation(h){
+ for(const kind of ['createOcrService','createLedger','createManagedLedger','window','command'])assert.equal(h.count(kind),0,kind);
+ assert.equal(h.handlers.size,0);assert.equal(h.count('sqliteProbe'),1);
+ assert.equal(h.count('rm'),1);assert.equal(h.calls.find(call=>call.kind==='rm').file,h.calls.find(call=>call.kind==='mkdtemp').file);
+}
+test('probe rejects a missing OCR worker in development and packaged modes without opening a ledger',async()=>{
+ for(const packaged of [false,true]){
+  const h=harness({probe:true,packaged,platform:'win32',workerMissing:true});await h.start();
+  assert.deepEqual(h.exitCodes,[1]);assert.equal(h.logs.length,0);assert.match(h.errors[0],/缺少本地 OCR/);assert.equal(h.count('execFile'),0);assertProbeIsolation(h);
+ }
+});
+
+test('probe requires explicit passed statuses from both SQLite and OCR',async()=>{
+ for(const key of ['sqliteResult','ocrResult'])for(const result of [{status:'failed'},{status:'not run'},{},null]){
+  const h=harness({probe:true,packaged:true,platform:'win32',[key]:result});await h.start();
+  assert.deepEqual(h.exitCodes,[1]);assert.equal(h.logs.length,0);assert.match(h.errors[0],/依赖探针未通过/);assert.equal(h.count('execFile'),key==='sqliteResult'?0:1);assertProbeIsolation(h);
+ }
+});
+
+test('probe succeeds only with both passed reports and the platform-specific worker, without UI startup',async()=>{
+ for(const platform of ['darwin','win32'])for(const packaged of [false,true]){
+  const h=harness({probe:true,packaged,platform});await h.start();
+  assert.deepEqual(h.exitCodes,[0]);assert.deepEqual(h.errors,[]);assert.equal(h.logs.length,1);assert.deepEqual(JSON.parse(h.logs[0]),{sqlite:{status:'passed'},packaged,ocr:{status:'passed'}});
+  const execution=h.calls.find(call=>call.kind==='execFile'),root=packaged?path.join(base,'resources'):path.join(path.dirname(mainFile),'ocr-dist');
+  assert.equal(execution.file,path.join(root,'ocr-probe',platform==='win32'?'ocr-probe.exe':'ocr-probe'));
+  assert.equal(execution.args[0],packaged?path.join(base,'resources','ocr-sample.png'):path.join(path.dirname(mainFile),'fixtures','ocr-sample.png'));assertProbeIsolation(h);
+ }
+});
+
 test('invalid native configuration fails before readiness, OCR or database creation',()=>{
  const cases=[
   {env:{XX_FINANCE_MANAGED_TRIAL:'1'}},
@@ -156,4 +201,22 @@ test('ledger creation failure stops OCR and waits for its cleanup without openin
 test('startup cleanup failure exits with error and records that the ledger and lock remain',async()=>{
  const h=harness({env:managedEnv,loadError:Error('synthetic startup failure'),close:()=>Promise.reject(Error('synthetic close failure'))});await h.start();
  assert.deepEqual(h.exitCodes,[1]);assert.equal(h.count('quit'),0);assert.ok(h.errors.some(message=>message.includes('保留账本及锁')));assert.equal(h.count('ledger.close'),1);
+});
+
+ test('native restore chooser pins the source to a user-selected directory and passes generation, with cancellation and shutdown protection',async()=>{
+  const generation='synthetic-generation',folder=path.join(base,'synthetic-backup');
+  const h=harness({env:managedEnv,choose:async()=>({canceled:false,filePaths:[folder]})});await h.start();const handler=h.handlers.get('ledger:command');
+  await handler(h.trusted(),{kind:'choose-restore',generation});assert.equal(h.count('choose'),1);assert.deepEqual(JSON.parse(JSON.stringify(h.calls.find(c=>c.kind==='command').payload)),{kind:'prepare-restore',generation,backup:folder});
+  await assert.rejects(handler(h.trusted(),{kind:'choose-restore',generation,backup:'/renderer/path'}),/无效/);assert.equal(h.count('choose'),1);
+  const canceled=harness({env:managedEnv});await canceled.start();assert.equal(await canceled.handlers.get('ledger:command')(canceled.trusted(),{kind:'choose-restore',generation}),null);assert.equal(canceled.count('command'),0);
+  const choosing=deferred(),closing=harness({env:managedEnv,choose:()=>choosing.promise});await closing.start();const pending=closing.handlers.get('ledger:command')(closing.trusted(),{kind:'choose-restore',generation});await flush();closing.beforeQuit();choosing.resolve({canceled:false,filePaths:[folder]});await assert.rejects(pending,/正在关闭/);assert.equal(closing.count('command'),0);await flush();
+ });
+
+test('new marked Mac bundle isolates its default data and refuses an unowned existing folder',async()=>{
+ const resources=path.join(base,'resources'),marker=path.join(resources,'mac-trial.json'),buildId=randomUUID(),root=path.resolve(resources,'../../../mac-trial-data'),tag=path.join(root,'trial-marker.txt');
+ const contents=[[marker,JSON.stringify({format:1,buildId})]];
+ const h=harness({packaged:true,platform:'darwin',files:[[marker,'file']],contents});await h.start();
+ assert.equal(h.count('createManagedLedger'),1);assert.equal(h.calls.find(c=>c.kind==='createManagedLedger').args[0],path.join(root,'user-data','ledger'));assert.equal(h.paths.userData,path.join(root,'user-data'));assert.equal(h.count('createLedger'),0);
+ const reopen=harness({packaged:true,platform:'darwin',files:[[marker,'file'],[root,'directory'],[tag,'file']],contents:[...contents,[tag,buildId+'\n']]});await reopen.start();assert.equal(reopen.count('createManagedLedger'),1);
+ for(const extra of [[],[[tag,'file']]]){const rejected=harness({packaged:true,platform:'darwin',files:[[marker,'file'],[root,'directory'],...extra],contents:[...contents,[tag,'different']]});assert.deepEqual(rejected.exitCodes,[1]);assert.equal(rejected.count('whenReady'),0);assert.equal(rejected.count('createManagedLedger'),0);assert.equal(rejected.count('writeFile'),0);}
 });

@@ -37,9 +37,10 @@ function harness(options:{kind?:'expense'|'advance'|'invoice';disabled?:boolean;
   useRef(initial:any){const index=cursor++;if(!(index in slots))slots[index]={current:initial};return slots[index];},
   useEffect(effect:()=>void|(()=>void),deps:any[]){const index=cursor++,prior=slots[index];if(!prior||deps.some((value,i)=>value!==prior[i])){slots[index]=deps;effects.push(()=>{cleanups.get(index)?.();const cleanup=effect();if(cleanup)cleanups.set(index,cleanup);});}}
  };
- const jsx=(type:unknown,props:Record<string,any>):Node=>({type,props});
+ const jsx=(type:unknown,props:Record<string,any>):Node=>typeof type==='function'?type(props):({type,props});
  const modules:Record<string,any>={
   react,'react/jsx-runtime':{jsx,jsxs:jsx,Fragment:'fragment'},
+  './ImagePreview.tsx':({src,alt}:{src:string;alt:string})=>jsx('img',{src,alt}),
   './image-file.ts':{singleImage,validateImageFile:options.validate??validateImageFile},
   './model.ts':{decimal:(cents:number)=>(cents/100).toFixed(2)},
   './ocr.ts':{recognizeScreenshot:(file:File,signal:AbortSignal)=>{recognitions.push(file);return options.recognize?.(file,signal)??Promise.resolve({expense_fields:{amount_cents:1234,date:'2026-10-12',merchant:'合成商户'},extraction:{fields:{account_balance:null,refund:null}},texts:['合成识别']});}},

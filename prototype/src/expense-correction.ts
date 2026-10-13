@@ -1,7 +1,6 @@
 import {cents,decimal,sum} from './model.ts';
 import type {Category,Expense} from './model.ts';
 import type {LedgerState} from './ledger.ts';
-import {expenseHasInvoiceHistory} from './invoice-model.ts';
 
 export type CorrectionDraft={category:Category;date:string;merchant:string;amount:string;note:string};
 export type CorrectionFields=Pick<Expense,'category'|'date'|'merchant'|'amount'|'note'>;
@@ -9,10 +8,6 @@ export type CorrectionCommand={kind:'correct-expense';requestId:string;id:number
 export type CorrectionSession={expected:Expense;expectedRevision:number};
 
 export function correctionRestriction(expense:Expense,state:LedgerState):string|null{
- if(expense.invoice!==0)return '已有发票关联票额，暂不支持纠错。';
- if(expenseHasInvoiceHistory(state,expense.id))return '这笔费用已有发票关联历史，暂不支持纠错；解除关联后仍保留历史。';
- if(state.batches.some(batch=>batch.allocations.some(row=>row.expenseId===expense.id))||state.batchEvents?.some(event=>event.before.allocations.some(row=>row.expenseId===expense.id)))
-  return '这笔费用已有报销历史，暂不支持纠错；即使当前已报销为 0，已撤销或已删除批次的历史关联仍保留。';
  return null;
 }
 export function expenseRevision(state:LedgerState,id:number){return state.expenseEvents?.filter(event=>event.expenseId===id).length??0;}

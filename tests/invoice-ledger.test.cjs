@@ -39,7 +39,7 @@ function assertEvents(f,state){
 test('new invoices preserve all cash and reimbursement facts, normalize identity, retain originals and reopen with complete audit',async t=>{
  const f=await fixture(t),before=await snapshot(f);assert.equal(Object.hasOwn(before.state,'invoices'),false);assert.equal(Object.hasOwn(before.state,'invoiceEvents'),false);await f.reopen();assert.deepEqual(await snapshot(f),before);
  const bytes=png(),input=createInput({identityType:'unconfirmed',number:' ａｂ １２\t ',code:'  ｘ ９ ',amount:1,seller:' 合成销方 ',buyer:' ',note:' 合成备注 '},bytes),state=await f.command(input),invoice=state.invoices[0];
- assert.deepEqual(invoice,{id:1,identityType:'unconfirmed',number:'AB12',code:'X9',date:'2026-10-12',seller:'合成销方',buyer:'',amount:1,note:'合成备注',attachmentIds:invoice.attachmentIds,allocations:[],revision:1,createdAt:state.invoiceEvents[0].at});
+ assert.deepEqual(invoice,{id:1,identityType:'unconfirmed',number:'AB12',code:'X9',date:'2026-10-12',seller:'合成销方',buyer:'',amount:1,note:'合成备注',attachmentIds:invoice.attachmentIds,allocations:[],expenseIds:[],revision:1,createdAt:state.invoiceEvents[0].at});
  assert.deepEqual(unchangedFacts(state),unchangedFacts(before.state));assert.equal(invoice.attachmentIds.length,1);assert.deepEqual(await f.command({kind:'attachment',id:invoice.attachmentIds[0]}),{mime:'image/png',base64:bytes.toString('base64')});assertEvents(f,state);
  const saved=await snapshot(f);await f.reopen();assert.deepEqual(await snapshot(f),saved);
 });
@@ -68,18 +68,12 @@ test('invoice image hashes deduplicate within and across invoices but payment sc
  const extra=png(),updated=await apply(f,a,'invoice-attachment',{image:image(extra)});assert.equal(updated.amount,a.amount);assert.deepEqual(updated.allocations,a.allocations);assert.deepEqual(updated.attachmentIds.slice(0,-1),a.attachmentIds);assert.equal(updated.revision,2);assert.deepEqual(await f.command({kind:'attachment',id:updated.attachmentIds[1]}),{mime:'image/png',base64:extra.toString('base64')});assert.deepEqual(unchangedFacts(await read(f)),baseline);assertEvents(f,await read(f));
 });
 
-test('many-to-many allocations enforce both limits including legacy invoice baseline and replace only this invoice allocations',async t=>{
- const f=await fixture(t),legacy=await read(f);legacy.expenses[0].invoice=100;legacy.expenses[0].legacyDetails={synthetic:'preserve'};replace(f,legacy);const baseline=unchangedFacts(await read(f));
- let a=await create(f,{amount:10000}),b=await create(f,{amount:20000});a=await apply(f,a,'invoice-allocate',{allocations:[{expenseId:2,amount:3000},{expenseId:1,amount:4001}]});b=await apply(f,b,'invoice-allocate',{allocations:[{expenseId:1,amount:5900},{expenseId:3,amount:12000}]});
- a=await apply(f,a,'invoice-allocate',{allocations:[{expenseId:2,amount:5999},{expenseId:1,amount:4001}]});assert.deepEqual(a.allocations,[{expenseId:1,amount:4001},{expenseId:2,amount:5999}]);
- await rejectsUnchanged(f,change(a,'invoice-allocate',{allocations:[{expenseId:1,amount:4002}]}),/费用可用票额/);await rejectsUnchanged(f,change(a,'invoice-allocate',{allocations:[{expenseId:2,amount:10001}]}),/票面金额/);
- const bBefore=structuredClone(b);a=await apply(f,a,'invoice-allocate',{allocations:[]});const state=await read(f);assert.deepEqual(state.invoices[1],bBefore);assert.deepEqual(a.allocations,[]);assert.deepEqual(unchangedFacts(state),baseline);assert.equal(state.expenses[0].invoice,100);assertEvents(f,state);
-});
-
-test('unconfirmed invoices cannot allocate and unchanged or merely reordered allocations produce no writes',async t=>{
- const f=await fixture(t),pending=await create(f,{identityType:'unconfirmed',number:'',code:''});await rejectsUnchanged(f,change(pending,'invoice-allocate',{allocations:[{expenseId:1,amount:1}]}),/先核对/);await rejectsUnchanged(f,change(pending,'invoice-allocate',{allocations:[]}),/没有变化/);
- let ready=await apply(f,pending,'invoice-identity',{identity:{identityType:'number',number:'ABC',code:''}});ready=await apply(f,ready,'invoice-allocate',{allocations:[{expenseId:1,amount:1},{expenseId:3,amount:2}]});
- await rejectsUnchanged(f,change(ready,'invoice-allocate',{allocations:[{expenseId:3,amount:2},{expenseId:1,amount:1}]}),/没有变化/);
+test('pure invoice associations have no amount capacity or identity gate, replace only this invoice and retain cash facts',async t=>{
+ const f=await fixture(t),baseline=unchangedFacts(await read(f));let a=await create(f,{amount:1,identityType:'unconfirmed',number:'',code:''}),b=await create(f,{amount:1});
+ a=await apply(f,a,'invoice-link',{expenseIds:[2,1]});b=await apply(f,b,'invoice-link',{expenseIds:[1]});assert.deepEqual(a.expenseIds,[1,2]);assert.deepEqual(a.allocations,[]);
+ a=await apply(f,a,'invoice-link',{expenseIds:[]});assert.deepEqual(a.expenseIds,[]);assert.deepEqual((await read(f)).invoices[1],b);assert.deepEqual(unchangedFacts(await read(f)),baseline);assertEvents(f,await read(f));
+ await rejectsUnchanged(f,change(a,'invoice-link',{expenseIds:[]}),/没有变化/);
+ for(const ids of [null,[1,1],[999],[0],['1']])await rejectsUnchanged(f,change(a,'invoice-link',{expenseIds:ids}));
 });
 
 test('invoice and reimbursement allocations are independent and every reimbursement mutation preserves invoice and full cash facts',async t=>{
@@ -108,12 +102,8 @@ test('invalid allocations and missing expenses cannot create or overwrite associ
  for(const allocations of [null,{},[{expenseId:1,amount:0}],[{expenseId:1,amount:-1}],[{expenseId:1,amount:0.5}],[{expenseId:1,amount:'1'}],[{expenseId:'1',amount:1}],[{expenseId:1,amount:Number.MAX_SAFE_INTEGER+1}],[{expenseId:1,amount:1,extra:true}],[{expenseId:1,amount:1},{expenseId:1,amount:1}],[{expenseId:999,amount:1}]])await rejectsUnchanged(f,change(invoice,'invoice-allocate',{allocations}));
 });
 
-test('integer-cent maxima and aggregate allocations use exact arithmetic without rounding overflow',async t=>{
- const f=await fixture(t,{seed:false});for(const amount of [Number.MAX_SAFE_INTEGER-1,1])await f.command({kind:'expense',requestId:randomUUID(),expense:{category:'办公',date:'2026-10-12',merchant:'合成边界费用',amount,note:''}});const state=await read(f);state.expenses[0].invoice=1;replace(f,state);let invoice=await create(f,{amount:Number.MAX_SAFE_INTEGER});
- invoice=await apply(f,invoice,'invoice-allocate',{allocations:[{expenseId:1,amount:Number.MAX_SAFE_INTEGER-2}]});assert.equal(invoice.allocations[0].amount,Number.MAX_SAFE_INTEGER-2);
- await rejectsUnchanged(f,createInput({amount:1}),/票面金额合计超出安全范围/);
- await rejectsUnchanged(f,change(invoice,'invoice-allocate',{allocations:[{expenseId:1,amount:Number.MAX_SAFE_INTEGER-1}]}),/费用可用票额/);await rejectsUnchanged(f,change(invoice,'invoice-allocate',{allocations:[{expenseId:1,amount:Number.MAX_SAFE_INTEGER},{expenseId:2,amount:1}]}),/票面金额/);
- const last=await apply(f,invoice,'invoice-allocate',{allocations:[{expenseId:1,amount:Number.MAX_SAFE_INTEGER-2},{expenseId:2,amount:1}]});assert.equal(last.allocations[1].amount,1);assertEvents(f,await read(f));
+test('invoice metadata remains integer cents and legacy allocation command translates only expense IDs',async t=>{
+ const f=await fixture(t);let invoice=await create(f,{amount:1});invoice=await apply(f,invoice,'invoice-allocate',{allocations:[{expenseId:1,amount:Number.MAX_SAFE_INTEGER},{expenseId:2,amount:1}]});assert.deepEqual(invoice.expenseIds,[1,2]);assert.deepEqual(invoice.allocations,[]);
 });
 
 test('compare-and-swap rejects stale identities, attachments and allocations; independent writers recheck current revision',async t=>{
@@ -152,11 +142,12 @@ test('transaction failures roll back every invoice command including its audit, 
  }
 });
 
-test('invoice association history permanently blocks expense correction even after allocations are cleared',async t=>{
- const f=await fixture(t),original=await read(f);let invoice=await create(f);const correction=state=>({kind:'correct-expense',requestId:randomUUID(),id:1,expected:state.expenses[0],expectedRevision:(state.expenseEvents??[]).filter(event=>event.expenseId===1).length,expense:{category:'接待',date:'2026-10-02',merchant:'合成费用1',amount:10000,note:'合成更正'}});
- const corrected=await f.command(correction(original));invoice=await apply(f,invoice,'invoice-allocate',{allocations:[{expenseId:1,amount:1}]});await rejectsUnchanged(f,{...correction(corrected),expense:{...correction(corrected).expense,amount:9999}},/发票分配历史/);
- invoice=await apply(f,invoice,'invoice-allocate',{allocations:[]});await f.reopen();await rejectsUnchanged(f,{...correction(await read(f)),expense:{...correction(corrected).expense,amount:9999}},/发票分配历史/);assert.deepEqual(invoice.allocations,[]);
- const state=await read(f);state.invoiceEvents=state.invoiceEvents.filter(event=>event.action==='invoice-allocate').slice(-1);replace(f,state);await rejectsUnchanged(f,correction(state),/发票分配历史/); // The retained before snapshot alone is sufficient.
+test('invoice edit/delete keeps attachments and full cash facts, uses CAS and survives reopen without ID reuse',async t=>{
+ const f=await fixture(t),baseline=unchangedFacts(await read(f));let invoice=await create(f);const original=structuredClone(invoice);
+ invoice=await apply(f,invoice,'invoice-link',{expenseIds:[1]});const edit=change(invoice,'invoice-edit',{invoice:fields({number:original.number,date:'2026-10-01',amount:1,note:'edited'})});invoice=(await f.command(edit)).invoices[0];assert.equal(invoice.amount,1);assert.deepEqual(invoice.expenseIds,[1]);assert.deepEqual(invoice.attachmentIds,original.attachmentIds);
+ await rejectsUnchanged(f,change(original,'invoice-delete',{}),/已变化/);
+ const deletion=change(invoice,'invoice-delete',{}),deleted=await f.command(deletion);assert.deepEqual(deleted.invoices,[]);assert.equal(deleted.invoiceEvents.at(-1).after,null);assert.deepEqual(deleted.invoiceEvents.at(-1).before,invoice);assert.deepEqual(unchangedFacts(deleted),baseline);
+ const saved=await snapshot(f);await f.reopen();assert.deepEqual(await f.command(deletion),saved.state);assert.deepEqual(await snapshot(f),saved);assert.ok(await f.command({kind:'attachment',id:original.attachmentIds[0]}));assert.equal((await create(f)).id,2);
 });
 
 test('malformed optional invoice collections and unsafe ID or revision increments reject without overwriting legacy data',async t=>{
@@ -171,4 +162,25 @@ test('managed reset clears invoices, all invoice audit and originals, rejects ol
  const reset={kind:'reset-ledger',requestId:randomUUID(),generation:initial.generation,confirmation:'清空当前账本'};await f.ledger.command(reset);const empty=await read(f),snapshotEmpty=await snapshot(f);assert.equal(Object.hasOwn(empty,'invoices'),false);assert.equal(Object.hasOwn(empty,'invoiceEvents'),false);assert.deepEqual(snapshotEmpty.attachments,[]);assert.deepEqual(snapshotEmpty.files,[]);assert.deepEqual(snapshotEmpty.operations,[]);
  await f.command(createInput());const fresh=await snapshot(f);for(const old of [input,allocate]){await assert.rejects(f.ledger.command({...old,generation:initial.generation}),/代际已变化/);assert.deepEqual(await snapshot(f),fresh);}
  await f.ledger.command(reset);assert.deepEqual(await snapshot(f),fresh);assert.notEqual(empty.generation,initial.generation);
+});
+
+test('new invoice link/edit/delete commands validate shapes, identity duplicates and all rollback writes',async t=>{
+ const f=await fixture(t),first=await create(f),second=await create(f),original=await snapshot(f);
+ await rejectsUnchanged(f,change(second,'invoice-edit',{invoice:fields({number:first.number})}),/重复/);
+ for(const input of [change(first,'invoice-link',{expenseIds:[1]}),change(first,'invoice-edit',{invoice:fields({number:first.number,amount:1})}),change(first,'invoice-delete',{})]){
+  for(const extra of [{expectedRevision:0},{id:0},{extra:true}])await rejectsUnchanged(f,{...input,...extra});
+  f.db(db=>db.exec("CREATE TRIGGER fail_invoice BEFORE INSERT ON operations WHEN NEW.kind LIKE 'invoice%' BEGIN SELECT RAISE(ABORT,'synthetic rollback'); END"));await rejectsUnchanged(f,input,/synthetic rollback/);f.db(db=>db.exec('DROP TRIGGER fail_invoice'));
+ }
+ assert.deepEqual(await snapshot(f),original);
+ const edited=await f.command(change(first,'invoice-edit',{invoice:fields({number:first.number,amount:1})}));const stale=change(first,'invoice-link',{expenseIds:[1]});await rejectsUnchanged(f,stale,/已变化/);assert.equal(edited.invoices[0].revision,2);
+});
+
+test('batch invoice links cover only explicit selected expenses, preserve full cash, and reject stale invoice revisions atomically',async t=>{
+ const f=await fixture(t),a=await create(f,{amount:1}),b=await create(f,{amount:1}),baseline=unchangedFacts(await read(f));
+ const batch={kind:'batch',requestId:randomUUID(),date:'2026-10-12',allocations:[{expenseId:1,amount:1},{expenseId:3,amount:1}],invoiceLinks:[{invoiceId:a.id,expectedRevision:a.revision,expenseIds:[1]},{invoiceId:b.id,expectedRevision:b.revision,expenseIds:[3]}]};
+ const state=await f.command(batch);assert.deepEqual(state.invoices.map(invoice=>invoice.expenseIds),[[1],[3]]);assert.deepEqual(state.batches.at(-1).invoiceLinks,[{invoiceId:a.id,expenseIds:[1]},{invoiceId:b.id,expenseIds:[3]}]);assert.deepEqual(unchangedFacts(state).flows,baseline.flows);assert.equal(unchangedFacts(state).balance,baseline.balance);
+ const saved=await snapshot(f);assert.deepEqual(await f.command(batch),saved.state);await f.reopen();assert.deepEqual(await snapshot(f),saved);
+ await rejectsUnchanged(f,{...batch,requestId:randomUUID()},/已变化/);
+ await rejectsUnchanged(f,{...batch,requestId:randomUUID(),invoiceLinks:[{invoiceId:a.id,expectedRevision:2,expenseIds:[2]}]},/本批次/);
+ const before=await snapshot(f);await rejectsUnchanged(f,{...batch,requestId:randomUUID(),invoiceLinks:[{invoiceId:a.id,expectedRevision:2,expenseIds:[3]},{invoiceId:b.id,expectedRevision:1,expenseIds:[1]}]},/已变化/);assert.deepEqual(await snapshot(f),before);
 });

@@ -2,16 +2,19 @@ import React,{useEffect,useRef,useState} from 'react';
 import {ledgerCommand} from './ledger.ts';
 import './backup.css';
 
-type MaintenanceInfo={supported:boolean;backupConfigured:boolean;canReset:boolean;generation?:string;pendingReset?:{requestId:string;fromGeneration:string}|null};
+type MaintenanceInfo={supported:boolean;backupConfigured:boolean;canReset:boolean;canRestore?:boolean;generation?:string;pendingReset?:{requestId:string;fromGeneration:string}|null};
 type Request={requestId:string;generation:string};
-type BackupResult={directory:string;summary?:{expenseCount?:number;advanceCount?:number;batchCount?:number;attachmentFileCount?:number}};
-type Activity='info'|'backup'|'reset'|null;
+type BackupResult={directory:string;summary?:{expenseCount?:number;advanceCount?:number;batchCount?:number;invoiceCount?:number;attachmentFileCount?:number}};
+type Activity='info'|'backup'|'reset'|'restore'|null;
+type RestorePlan={token:string;generation:string;directory:string;createdAt:string;summary:NonNullable<BackupResult['summary']>};
 const CONFIRMATION='清空当前账本';
 const message=(error:unknown)=>error instanceof Error?error.message:'本地操作失败，请检查状态后重试。';
 
-export default function BackupPage({onResetComplete}:{onResetComplete:()=>void}){
+export default function BackupPage({onResetComplete}:{onResetComplete:(warning?:string)=>void}){
  const [info,setInfo]=useState<MaintenanceInfo|null>(null),[busy,setBusy]=useState<Activity>('info'),[error,setError]=useState('');
  const [backup,setBackup]=useState<BackupResult|null>(null),[confirming,setConfirming]=useState(false),[confirmation,setConfirmation]=useState('');
+ const [restorePlan,setRestorePlan]=useState<RestorePlan|null>(null),[restoreText,setRestoreText]=useState(''),[restorePath,setRestorePath]=useState('');
+ const restoreRequest=useRef<string|null>(null);
  const lock=useRef(false),mounted=useRef(true),backupRequest=useRef<Request|null>(null),resetRequest=useRef<Request|null>(null);
  const confirmationInput=useRef<HTMLInputElement>(null),resetComplete=useRef(onResetComplete);
  resetComplete.current=onResetComplete;
@@ -57,6 +60,17 @@ export default function BackupPage({onResetComplete}:{onResetComplete:()=>void})
    backupRequest.current=null;if(mounted.current)setBackup(result);
   }catch(e){if(mounted.current)setError(message(e));}finally{finish();}
  }
+ async function chooseRestore(){
+  if(!info?.generation||!info.canRestore||!begin('restore'))return;setError('');setRestorePlan(null);restoreRequest.current=null;setRestoreText('');
+  try{const value=await ledgerCommand<RestorePlan|null>(window.localLedger?{kind:'choose-restore',generation:info.generation}:{kind:'prepare-restore',generation:info.generation,backup:restorePath});if(value&&mounted.current)setRestorePlan(value);}
+  catch(e){if(mounted.current)setError(message(e));}finally{finish();}
+ }
+ async function confirmRestore(event:React.FormEvent){
+  event.preventDefault();if(!restorePlan||restoreText!=='恢复备份'||!begin('restore'))return;setError('');
+  const requestId=restoreRequest.current??crypto.randomUUID();restoreRequest.current=requestId;
+  try{const value=await ledgerCommand<{restored:boolean;completed:boolean;backupDirectory:string;warning?:string}>({kind:'restore-backup',requestId,token:restorePlan.token,generation:restorePlan.generation,confirmation:restoreText});if(!value?.restored||!value.completed)throw Error('恢复结果未确认，请保留备份并重试');setBackup({directory:value.backupDirectory});setRestorePlan(null);setRestoreText('');restoreRequest.current=null;if(value.warning)setError(value.warning);resetComplete.current(value.warning);}
+  catch(e){if(mounted.current)setError(message(e));}finally{finish();}
+ }
  function openConfirmation(){
   if(lock.current||!canReset)return;
   resetRequest.current=pending?{requestId:pending.requestId,generation:pending.fromGeneration}:resetRequest.current??{requestId:crypto.randomUUID(),generation:info!.generation!};
@@ -95,7 +109,20 @@ export default function BackupPage({onResetComplete}:{onResetComplete:()=>void})
    {backup&&<div className="backup-result" role="status"><h3>最近保存的完整备份</h3><p className="backup-location">{backup.directory}</p>{backup.summary&&<p className="backup-help">{[
     ['费用',backup.summary.expenseCount,'笔'],['预支',backup.summary.advanceCount,'笔'],['报销批次',backup.summary.batchCount,'批'],['附件',backup.summary.attachmentFileCount,'个'],
    ].filter(([,value])=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0).map(([label,value,unit])=>`${label} ${value} ${unit}`).join(' · ')}</p>}</div>}
-   <p className="backup-help backup-restore-help">恢复到新目录尚使用本地维护命令。</p>
+
+  </section>
+
+  <section className="backup-card" aria-labelledby="backup-restore-title">
+   <div className="backup-card-heading"><h2 id="backup-restore-title">恢复备份</h2><span className="backup-badge">先校验与预览</span></div>
+   <p>选择完整备份目录。恢复后切换到备份中的账本；当前账本会先自动完整备份并保留在原目录。</p>
+   {!window.localLedger&&<label className="field">本机完整备份目录<input value={restorePath} onChange={e=>setRestorePath(e.target.value)} disabled={!!busy} placeholder="输入包含 manifest.json 的目录路径"/></label>}
+   <div className="backup-actions"><button type="button" disabled={!!busy||!info?.canRestore||!!pending||(!window.localLedger&&!restorePath.trim())} onClick={()=>void chooseRestore()}>{busy==='restore'?'正在校验…':'选择并校验备份'}</button></div>
+   {restorePlan&&<form className="backup-confirmation" onSubmit={e=>void confirmRestore(e)}>
+    <p className="backup-location">{restorePlan.directory}</p><p>备份时间：{new Date(restorePlan.createdAt).toLocaleString()} · 费用 {restorePlan.summary.expenseCount} 笔 · 预支 {restorePlan.summary.advanceCount} 笔 · 报销 {restorePlan.summary.batchCount} 批 · 发票 {restorePlan.summary.invoiceCount} 张 · 附件 {restorePlan.summary.attachmentFileCount} 个</p>
+    <p id="restore-help">确认后当前页面使用的账本将替换为此备份。输入 <strong>恢复备份</strong> 继续；旧表单会失效。</p>
+    <label className="field">确认文字<input value={restoreText} onChange={e=>setRestoreText(e.target.value)} disabled={!!busy} autoComplete="off" aria-describedby="restore-help" placeholder="恢复备份"/></label>
+    <div className="backup-actions"><button type="button" disabled={!!busy} onClick={()=>{setRestorePlan(null);setRestoreText('');restoreRequest.current=null;}}>取消</button><button className="primary" type="submit" disabled={!!busy||restoreText!=='恢复备份'}>{busy==='restore'?'正在恢复…':'备份当前账本并恢复'}</button></div>
+   </form>}
   </section>
 
   <section className="backup-card backup-danger" aria-labelledby="backup-reset-title">
