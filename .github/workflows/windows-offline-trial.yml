@@ -1,0 +1,48 @@
+name: Windows x64 offline trial candidate
+
+# The dedicated branch avoids changing main just to register workflow_dispatch.
+on:
+  push:
+    branches: [codex/windows10-offline-acceptance]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-offline-trial-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Set up build-only Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 26.10.0
+          architecture: x64
+      - name: Set up build-only Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Build and check the portable candidate
+        run: ./spike/build-windows-trial.ps1
+      - name: Store candidate privately for USB transfer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: qianlai-windows10-x64-candidate-${{ github.sha }}
+          path: |
+            out/windows-offline/*.zip
+            out/windows-offline/*.sha256
+          if-no-files-found: error
+          retention-days: 7

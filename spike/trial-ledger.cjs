@@ -2,14 +2,24 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const {createHash,randomUUID}=require('node:crypto');
+const {isDeepStrictEqual}=require('node:util');
 const Database=require('better-sqlite3');
 const {imageSuffix,MAX_BYTES}=require('./ocr-service.cjs');
+const {INVOICE_KINDS,validateInvoiceCommand,hasInvoiceHistory,applyInvoiceCommand}=require('./invoice-domain.cjs');
 const fail=message=>{throw Object.assign(Error(message),{status:422});};
 function amount(n){if(!Number.isSafeInteger(n)||n<=0)fail('金额须为安全范围内的正整数分');return n;}
 function total(values){const n=values.reduce((a,b)=>a+BigInt(b),0n);if(n>BigInt(Number.MAX_SAFE_INTEGER))fail('金额合计超出安全范围');return Number(n);}
 function text(s,max,required=true){if(typeof s!=='string'||s.length>max||(required&&!s.trim()))fail('文本字段无效');return s.trim();}
 function date(s){if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(s)||!Number.isFinite(Date.parse(s))||new Date(s).toISOString().slice(0,10)!==s)fail('日期无效');return s;}
-function createLedger(root,service){
+function batchEvents(state){const events=state.batchEvents===undefined?[]:state.batchEvents;if(!Array.isArray(events))fail('现有批次操作历史无效，请保留账本');return events;}
+function createLedger(root,service,managedToken){
+ if(fs.lstatSync(path.join(root,'managed-ledger.json'),{throwIfNoEntry:false})){
+  const lock=path.join(root,'.writer-lock'),ownerFile=path.join(lock,'owner.json');
+  try{
+   const lockStat=fs.lstatSync(lock),ownerStat=fs.lstatSync(ownerFile);
+   if(typeof managedToken!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(managedToken)||!lockStat.isDirectory()||lockStat.isSymbolicLink()||!ownerStat.isFile()||ownerStat.isSymbolicLink()||ownerStat.size>4096||JSON.parse(fs.readFileSync(ownerFile,'utf8')).token!==managedToken)fail('受管账本只能通过持锁入口打开');
+  }catch{fail('受管账本只能通过持锁入口打开，未修改账本');}
+ }
  fs.mkdirSync(root,{recursive:true,mode:0o700});
  const attachments=path.join(root,'attachments');fs.mkdirSync(attachments,{recursive:true,mode:0o700});
  const db=new Database(path.join(root,'trial.sqlite'));db.pragma('journal_mode = WAL');db.pragma('synchronous = FULL');
@@ -21,6 +31,7 @@ function createLedger(root,service){
  let busy=false;
  async function command(input){
   if(!input||typeof input!=='object')fail('请求无效');
+  if(input.kind==='maintenance-info')return {supported:false,backupConfigured:false,canReset:false};
   if(input.kind==='read')return read();
   if(input.kind==='attachment'){
    if(typeof input.id!=='string')fail('附件编号无效');
@@ -32,10 +43,12 @@ function createLedger(root,service){
   if(busy)fail('正在保存，请稍后再试');busy=true;
   let savedFile,committed=false;
   try{
-   if(!['expense','advance','batch','cancel'].includes(input.kind)||typeof input.requestId!=='string'||!/^[a-f0-9-]{36}$/.test(input.requestId))fail('保存请求无效');
+   if(!['expense','correct-expense','advance','batch','cancel','delete-batch',...INVOICE_KINDS].includes(input.kind)||typeof input.requestId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(input.requestId))fail('保存请求无效');
+   if(input.kind==='delete-batch'&&(!Number.isSafeInteger(input.id)||input.id<=0))fail('批次编号无效');
    const digest=createHash('sha256').update(JSON.stringify(input)).digest('hex');
    const previous=db.prepare('SELECT digest FROM operations WHERE id=?').get(input.requestId);
    if(previous){if(previous.digest!==digest)fail('重复请求内容不一致，请重新打开面板');return read();}
+   if(INVOICE_KINDS.includes(input.kind))validateInvoiceCommand(input);
    let attachment;
    if(input.kind==='expense'){
     const e=input.expense;if(!e||!['接待','办公'].includes(e.category))fail('费用类别无效');
@@ -44,7 +57,7 @@ function createLedger(root,service){
     const a=input.advance;if(!a||typeof a!=='object')fail('预支到账记录无效');
     amount(a.amount);date(a.date);text(a.note??'',500,false);
    }
-   if((input.kind==='expense'||input.kind==='advance')&&input.image){
+   if(['expense','advance','invoice','invoice-attachment'].includes(input.kind)&&input.image){
      if(typeof input.image.base64!=='string'||input.image.base64.length>Math.ceil(MAX_BYTES/3)*4||!/^[A-Za-z0-9+/]+={0,2}$/.test(input.image.base64))fail('附件无效');
      const bytes=Buffer.from(input.image.base64,'base64'),suffix=imageSuffix(bytes);
      await service.recognize(bytes,{validateOnly:true});
@@ -69,6 +82,23 @@ function createLedger(root,service){
      const e=input.expense;total([...state.expenses.map(e=>e.amount),e.amount]);
      const id=Math.max(0,...state.expenses.map(e=>e.id))+1;
      state.expenses.push({id,category:e.category,date:e.date,merchant:e.merchant.trim(),amount:e.amount,note:e.note.trim(),invoice:0,...(attachment?{attachmentId:attachment.id}:{})});
+    }else if(input.kind==='correct-expense'){
+     if(Object.keys(input).sort().join(',')!=='expected,expectedRevision,expense,id,kind,requestId'||!Number.isSafeInteger(input.id)||input.id<=0||!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<0)fail('费用纠错请求无效');
+     const index=state.expenses.findIndex(e=>e.id===input.id);if(index<0)fail('费用不存在');
+     const current=state.expenses[index],events=state.expenseEvents===undefined?[]:state.expenseEvents;if(!Array.isArray(events))fail('现有费用纠错历史无效，请保留账本');
+     const revision=events.filter(event=>event.expenseId===input.id).length;
+     if(revision!==input.expectedRevision||!isDeepStrictEqual(current,input.expected))fail('费用已变化，请刷新后重新核对');
+     if(current.invoice!==0)fail('已有票额的费用暂不支持纠错');
+     if(hasInvoiceHistory(state,input.id))fail('已有发票分配历史的费用暂不支持纠错');
+     if([...state.batches,...batchEvents(state).map(event=>event.before)].some(batch=>batch.allocations.some(row=>row.expenseId===input.id)))fail('已有报销历史的费用暂不支持纠错');
+     const e=input.expense;if(!e||typeof e!=='object'||Array.isArray(e)||Object.keys(e).sort().join(',')!=='amount,category,date,merchant,note'||!['接待','办公'].includes(e.category))fail('费用纠错字段无效，不能替换附件或添加其他业务字段');
+     const after={...current,category:e.category,date:date(e.date),merchant:text(e.merchant,100),amount:amount(e.amount),note:text(e.note,500,false)};
+     total(state.expenses.map((expense,position)=>position===index?after.amount:expense.amount));
+     if(isDeepStrictEqual(current,after))fail('费用内容没有变化');
+     state.expenses[index]=after;
+     state.expenseEvents=[...events,{requestId:input.requestId,action:'correct-expense',at:createdAt,expenseId:input.id,revision:revision+1,before:structuredClone(current),after:structuredClone(after)}];
+    }else if(INVOICE_KINDS.includes(input.kind)){
+     applyInvoiceCommand(state,input,{attachment,createdAt,attachmentMetadata:db.prepare('SELECT id,sha256 FROM attachments').all()});
     }else if(input.kind==='batch'){
      date(input.date);if(!Array.isArray(input.allocations)||!input.allocations.length||input.allocations.length>state.expenses.length)fail('分配无效');
      const seen=new Set();
@@ -78,9 +108,16 @@ function createLedger(root,service){
       if(a.amount>e.amount-paid)fail('分配超过当前待报销额，请刷新后重试');
      }
      const allocations=input.allocations.map(a=>({expenseId:a.expenseId,amount:a.amount}));total(allocations.map(a=>a.amount));
-     state.batches.push({id:Math.max(0,...state.batches.map(b=>b.id))+1,date:input.date,active:true,allocations});
-    }else{
+     const id=Math.max(0,...state.batches.map(b=>b.id),...batchEvents(state).map(event=>event.batchId))+1;
+     if(!Number.isSafeInteger(id))fail('批次编号超出安全范围');
+     state.batches.push({id,date:input.date,active:true,allocations});
+    }else if(input.kind==='cancel'){
      const batch=state.batches.find(b=>b.id===input.id);if(!batch)fail('批次不存在');batch.active=false;
+    }else{
+     const batch=state.batches.find(b=>b.id===input.id);if(!batch)fail('批次不存在');
+     const events=batchEvents(state),before=structuredClone(batch);
+     state.batches=state.batches.filter(item=>item.id!==batch.id);
+     state.batchEvents=[...events,{requestId:input.requestId,action:'delete-batch',at:createdAt,batchId:batch.id,before,after:null}];
     }
     if(attachment)db.prepare('INSERT INTO attachments VALUES(@id,@file,@sha256,@size,@mime)').run(attachment);
     db.prepare('UPDATE trial_state SET json=? WHERE id=1').run(JSON.stringify(state));
