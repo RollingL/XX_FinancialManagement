@@ -10,6 +10,9 @@ test('optional diagnostics leave business path creation to the runtime and prese
   assert.ok(!script.includes('XX_FINANCE_USER_DATA_DIR='));assert.ok(!script.includes('XX_FINANCE_DATA_DIR='));assert.ok(!script.includes('XX_FINANCE_BACKUP_DIR='));assert.match(script,/Qianlai\.exe/);assert.match(script,/--diagnostics/);assert.ok(!script.includes('trial-marker.txt'));assert.ok(!script.includes('findstr'));assert.ok(!/\bcall\b/i.test(script));
   // NTSTATUS crashes can be negative in cmd.exe; ERRORLEVEL 1 misses those.
   assert.ok(script.includes('set "LAUNCH_EXIT=%errorlevel%"'));
+  const launch=`"%~dp0Qianlai.exe" --diagnostics${probe?' --probe':''} >"%LOG_DIR%\\stdout.txt" 2>"%LOG_DIR%\\stderr.txt"`;
+  assert.ok(script.includes(launch+'\r\nset "LAUNCH_EXIT=%errorlevel%"'));
+  assert.ok(!/^start\s/im.test(script),'GUI invocation must preserve redirected handles instead of using START');
   assert.ok(script.includes('if not "%LAUNCH_EXIT%"=="0" goto :runtime_failed'));
   assert.ok(script.includes('exit /b %LAUNCH_EXIT%'));
   assert.ok(script.includes('DisableDelayedExpansion'));

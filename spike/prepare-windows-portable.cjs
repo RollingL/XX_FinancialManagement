@@ -22,7 +22,9 @@ function launchScript(id,probe=false){
   'for /d %%D in ("%~dp0trial-data\\user-data\\restored-*") do if exist "%%D\\.writer-lock" >>"%LOG_DIR%\\status.txt" echo RestoredLock=%%~nxD',
   'echo Diagnostic mode only. For daily use, double-click Qianlai.exe.',
   'echo Diagnostic folder: "%LOG_DIR%"',
-  probe?'start "" /wait "%~dp0Qianlai.exe" --diagnostics --probe >"%LOG_DIR%\\stdout.txt" 2>"%LOG_DIR%\\stderr.txt"':'start "" /wait "%~dp0Qianlai.exe" --diagnostics >"%LOG_DIR%\\stdout.txt" 2>"%LOG_DIR%\\stderr.txt"',
+  // Batch files wait for GUI executables. Direct invocation preserves redirected
+  // standard handles; START /WAIT lost those handles in the Windows native test.
+  `"%~dp0Qianlai.exe" --diagnostics${probe?' --probe':''} >"%LOG_DIR%\\stdout.txt" 2>"%LOG_DIR%\\stderr.txt"`,
   'set "LAUNCH_EXIT=%errorlevel%"',
   '>>"%LOG_DIR%\\status.txt" echo ExitCode=%LAUNCH_EXIT%',
   '>>"%LOG_DIR%\\status.txt" echo Ended=%DATE% %TIME%',
