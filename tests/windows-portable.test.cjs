@@ -20,7 +20,13 @@ test('optional diagnostics leave business path creation to the runtime and prese
   assert.ok(script.includes('ELECTRON_LOG_FILE=%LOG_DIR%\\chromium.log'));
   assert.ok(script.includes('2>"%LOG_DIR%\\stderr.txt"'));
   assert.ok(script.includes('ExitCode=%LAUNCH_EXIT%'));
-  assert.ok(script.includes('if not exist "%~dp0diagnostics" mkdir "%~dp0diagnostics" || goto :failed'));
+  assert.ok(script.includes('if not exist "%~dp0diagnostics\\" mkdir "%~dp0diagnostics" 2>nul'));
+  assert.ok(script.includes('if not exist "%~dp0diagnostics\\" goto :failed'));
+  assert.ok(script.includes('set "LOG_ATTEMPT=0"\r\n:log_directory\r\nset /a LOG_ATTEMPT+=1 >nul'));
+  assert.ok(script.includes('if %LOG_ATTEMPT% GTR 100 goto :failed'));
+  assert.ok(script.includes(`set "LOG_DIR=%~dp0diagnostics\\${probe?'probe':'start'}-%RANDOM%-%RANDOM%-%LOG_ATTEMPT%"`));
+  assert.ok(script.includes('mkdir "%LOG_DIR%" 2>nul && goto :log_ready\r\nif exist "%LOG_DIR%" goto :log_directory\r\ngoto :failed\r\n:log_ready'));
+  assert.ok(script.indexOf('\r\n:log_ready\r\n')<script.indexOf('>"%LOG_DIR%\\status.txt"'),'Only the newly claimed directory may receive log writes');
   assert.ok(!/mkdir[^\r\n]*(?:trial-data|user-data|backups)/.test(script));
   assert.ok(!/powershell|curl|wget|https?:|executionpolicy|\brmdir\b|\bdel\b|Remove-Item/i.test(script));
   assert.equal(script.includes('--probe'),probe);assert.ok(!script.replaceAll('\r\n','').includes('\n'));

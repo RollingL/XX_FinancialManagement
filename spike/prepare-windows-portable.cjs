@@ -9,9 +9,15 @@ function launchScript(id,probe=false){
  assert.match(id,/^[A-Za-z0-9-]{1,160}$/,'Invalid portable build identity');
  const lines=['@echo off','setlocal EnableExtensions DisableDelayedExpansion','set "ERRORLEVEL="','set "RANDOM="',
   'cd /d "%~dp0" || goto :failed','if not exist "%~dp0Qianlai.exe" goto :failed',
-  'if not exist "%~dp0diagnostics" mkdir "%~dp0diagnostics" || goto :failed',
-  `set "LOG_DIR=%~dp0diagnostics\\${probe?'probe':'start'}-%RANDOM%-%RANDOM%"`,
-  'mkdir "%LOG_DIR%" || goto :failed',
+  'if not exist "%~dp0diagnostics\\" mkdir "%~dp0diagnostics" 2>nul',
+  'if not exist "%~dp0diagnostics\\" goto :failed',
+  // New cmd.exe processes can share RANDOM seeds. Claim a fresh directory before
+  // writing anything, and retry collisions without changing existing evidence.
+  'set "LOG_ATTEMPT=0"',':log_directory','set /a LOG_ATTEMPT+=1 >nul',
+  'if %LOG_ATTEMPT% GTR 100 goto :failed',
+  `set "LOG_DIR=%~dp0diagnostics\\${probe?'probe':'start'}-%RANDOM%-%RANDOM%-%LOG_ATTEMPT%"`,
+  'mkdir "%LOG_DIR%" 2>nul && goto :log_ready',
+  'if exist "%LOG_DIR%" goto :log_directory','goto :failed',':log_ready',
   'set "ELECTRON_ENABLE_LOGGING=1"','set "ELECTRON_LOG_FILE=%LOG_DIR%\\chromium.log"',
   'set "ELECTRON_ENABLE_STACK_DUMPING=1"','set "XX_FINANCE_STARTUP_DIAGNOSTICS=1"',
   `>"%LOG_DIR%\\status.txt" echo Build=${id}`,
