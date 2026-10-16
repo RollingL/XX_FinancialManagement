@@ -5,7 +5,8 @@ const {randomUUID,createHash}=require('node:crypto');
 const Database=require('better-sqlite3');
 const {createLedger}=require('./trial-ledger.cjs');
 const {resetLedger,readResetStatus,CONFIRMATION}=require('./ledger-reset.cjs');
-const MARKER='managed-ledger.json',LOCK='.writer-lock',OWNER='owner.json';
+const {acquireLedgerLock}=require('./ledger-lock.cjs');
+const MARKER='managed-ledger.json';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const fail=message=>{throw Object.assign(Error(message),{status:409});};
 function regular(file,directory=false){
@@ -30,7 +31,7 @@ function inspectManagedRoot(root,{complete=true}={}){
  }
  return marker;
 }
-function acquireManagedLock(root,{create=false}={}){
+function acquireManagedLock(root,{create=false,allowLegacyRecovery=false}={}){
  if(typeof root!=='string'||!root.trim())fail('必须明确指定隔离账本目录');root=path.resolve(root);
  // Resolve parent aliases once; the final root itself must still pass the no-symlink check.
  root=path.join(fs.realpathSync(path.dirname(root)),path.basename(root));
@@ -39,26 +40,15 @@ function acquireManagedLock(root,{create=false}={}){
   try{fs.mkdirSync(root,{mode:0o700});created=true;}catch(e){if(e.code!=='EEXIST')throw e;}
   if(created)writeJson(path.join(root,MARKER),{formatVersion:1,ledgerId:randomUUID(),sourceKind:'isolated-test'});
  }
- const marker=inspectManagedRoot(root,{complete:!created}),lockDir=path.join(root,LOCK),token=randomUUID();
- try{fs.mkdirSync(lockDir,{mode:0o700});}catch(e){if(e.code==='EEXIST')fail('账本正在使用或有残留锁，请先正常关闭原实例；不会自动抢锁');throw e;}
- try{writeJson(path.join(lockDir,OWNER),{token,pid:process.pid,createdAt:new Date().toISOString()});}
- catch(e){throw Error(`账本锁初始化失败，请保留目录和锁：${e.message}`);}
- let released=false;
- function release(){
-  if(released)return;
-  regular(lockDir,true);const ownerPath=path.join(lockDir,OWNER);regular(ownerPath);
-  let owner;try{owner=JSON.parse(fs.readFileSync(ownerPath,'utf8'));}catch{fail('账本锁所有者无效，未释放锁');}
-  if(owner?.token!==token||fs.readdirSync(lockDir).sort().join(',')!==OWNER)fail('账本锁所有者或内容已变化，未释放锁');
-  fs.unlinkSync(ownerPath);fs.rmdirSync(lockDir);released=true;
- }
+ const marker=inspectManagedRoot(root,{complete:!created}),{token,release}=acquireLedgerLock(root,{allowLegacyRecovery});
  try{
   const latest=inspectManagedRoot(root,{complete:!created});if(latest.ledgerId!==marker.ledgerId)fail('账本标识已变化，请保留目录');
  }catch(e){release();throw e;}
  return {root,marker,created,release,token};
 }
-function createManagedLedger(root,service,{createBackup,backupDestination}={}){
+function createManagedLedger(root,service,{createBackup,backupDestination,allowLegacyRecovery=false}={}){
  if(backupDestination!==undefined){if(typeof backupDestination!=='string'||!path.isAbsolute(backupDestination))fail('备份目录必须由启动配置指定绝对路径');regular(backupDestination,true);backupDestination=fs.realpathSync(backupDestination);}
- const anchor=acquireManagedLock(root,{create:true}),locks=[anchor];let lock=anchor,ledger=null,rawState,opening=false,restoreReceipt=null;
+ const anchor=acquireManagedLock(root,{create:true,allowLegacyRecovery}),locks=[anchor],retiredLedgers=new Set();let lock=anchor,ledger=null,rawState,opening=false,restoreReceipt=null,restorePointer=null;
  const pointerPath=path.join(anchor.root,'active-ledger.json');
  try{
   if(fs.lstatSync(pointerPath,{throwIfNoEntry:false})){
@@ -67,15 +57,15 @@ function createManagedLedger(root,service,{createBackup,backupDestination}={}){
    if(!pointer||Object.keys(pointer).sort().join(',')!=='directory,ledgerId,receipt,version'||pointer.version!==1||typeof pointer.directory!=='string'||!/^restored-[a-f0-9-]{36}$/.test(pointer.directory)||!uuid.test(pointer.directory.slice(9))||!uuid.test(pointer.ledgerId))fail('恢复入口标识无效');
    const receipt=pointer.receipt;
    if(!receipt||Object.keys(receipt).sort().join(',')!=='backupDirectory,fromGeneration,generation,requestId,token'||!uuid.test(receipt.requestId)||!uuid.test(receipt.token)||typeof receipt.backupDirectory!=='string'||!path.isAbsolute(receipt.backupDirectory)||typeof receipt.fromGeneration!=='string'||!/^([a-f0-9-]{36}):([a-f0-9-]{36})$/.test(receipt.fromGeneration)||!receipt.fromGeneration.split(':').every(value=>uuid.test(value))||typeof receipt.generation!=='string'||!receipt.generation.startsWith(pointer.ledgerId+':')||!uuid.test(receipt.generation.slice(pointer.ledgerId.length+1)))fail('恢复回执无效');
-   lock=acquireManagedLock(path.join(path.dirname(anchor.root),pointer.directory));locks.push(lock);
-   if(lock.marker.ledgerId!==pointer.ledgerId)fail('恢复账本身份与入口不一致');restoreReceipt=receipt;
+   lock=acquireManagedLock(path.join(path.dirname(anchor.root),pointer.directory),{allowLegacyRecovery});locks.push(lock);
+   if(lock.marker.ledgerId!==pointer.ledgerId)fail('恢复账本身份与入口不一致');restoreReceipt=receipt;restorePointer=pointer;
   }
  }catch(e){for(const item of locks.reverse())item.release();throw e;}
  let database=path.join(lock.root,'trial.sqlite');
  const publicGeneration=raw=>`${lock.marker.ledgerId}:${raw??'legacy'}`;
  function readRaw(){const db=new Database(database,{readonly:true,fileMustExist:true});try{return JSON.parse(db.prepare('SELECT json FROM trial_state WHERE id=1').get().json);}finally{db.close();}}
  function status(){return readResetStatus(lock.root);}
- function open(){opening=true;const value=createLedger(lock.root,service,lock.token);opening=false;return value;}
+ function open(){opening=true;try{const value=createLedger(lock.root,service,lock.token);opening=false;return value;}catch(e){opening=e.uncertainConnection!==false;throw e;}}
  try{
   if(!lock.created)require('./ledger-backup.cjs').inspectDatabase(database);
   if(lock.created){
@@ -146,25 +136,40 @@ function createManagedLedger(root,service,{createBackup,backupDestination}={}){
   if(digest(verifyBackup(plan.directory).manifest)!==plan.sourceDigest)fail('预览后备份已变化，请重新选择备份');
   const preserved=await exportBackup(backupDestination);
   if(digest(verifyBackup(plan.directory).manifest)!==plan.sourceDigest)fail('备份在恢复前已变化，当前账本未改变');
-  const target=path.join(path.dirname(anchor.root),'restored-'+randomUUID()),restored=restoreBackup({backupDir:plan.directory,targetDir:target});
-  const newLock=acquireManagedLock(target);let nextLedger=null,published=false;
+  const target=path.join(path.dirname(anchor.root),'restored-'+randomUUID());let newLock=null,nextLedger=null,candidateDatabase=null,published=false,candidateOpening=false;
   try{
-   const db=new Database(path.join(target,'trial.sqlite'),{fileMustExist:true});
-   let nextState;try{db.transaction(()=>{nextState=JSON.parse(db.prepare('SELECT json FROM trial_state WHERE id=1').get().json);nextState.generation=randomUUID();delete nextState.resetReceipt;db.prepare('UPDATE trial_state SET json=? WHERE id=1').run(JSON.stringify(nextState));}).immediate();}finally{db.close();}
+   const restored=restoreBackup({backupDir:plan.directory,targetDir:target});
+   if(digest(restored.manifest)!==plan.sourceDigest)fail('恢复备份与预览不一致，当前账本未改变');
+   newLock=acquireManagedLock(target,{allowLegacyRecovery});
+   const db=candidateDatabase=new Database(path.join(target,'trial.sqlite'),{fileMustExist:true});
+   let nextState;try{db.pragma('synchronous = FULL');db.transaction(()=>{nextState=JSON.parse(db.prepare('SELECT json FROM trial_state WHERE id=1').get().json);nextState.generation=randomUUID();delete nextState.resetReceipt;db.prepare('UPDATE trial_state SET json=? WHERE id=1').run(JSON.stringify(nextState));}).immediate();}finally{db.close();candidateDatabase=null;}
    require('./ledger-backup.cjs').inspectDatabase(path.join(target,'trial.sqlite'));
-   nextLedger=createLedger(target,service,newLock.token);
+   candidateOpening=true;nextLedger=createLedger(target,service,newLock.token);candidateOpening=false;
    const receipt={requestId:input.requestId,token:input.token,fromGeneration:input.generation,generation:newLock.marker.ledgerId+':'+nextState.generation,backupDirectory:preserved.directory};
    if(inspectManagedRoot(anchor.root).ledgerId!==anchor.marker.ledgerId)fail('恢复入口身份已变化');
-   if(fs.lstatSync(pointerPath,{throwIfNoEntry:false})){regular(pointerPath);const current=JSON.parse(fs.readFileSync(pointerPath,'utf8'));if(digest(current.receipt)!==digest(restoreReceipt))fail('恢复入口已变化，请保留当前账本');}
+   const pointerExists=!!fs.lstatSync(pointerPath,{throwIfNoEntry:false});
+   if(pointerExists!==!!restorePointer)fail('恢复入口已变化，请保留当前账本');
+   if(pointerExists){regular(pointerPath);const current=JSON.parse(fs.readFileSync(pointerPath,'utf8'));if(digest(current)!==digest(restorePointer))fail('恢复入口已变化，请保留当前账本');}
    const temporary=path.join(anchor.root,'.active-'+randomUUID()+'.json');
-   try{writeJson(temporary,{version:1,directory:path.basename(target),ledgerId:restored.ledgerId,receipt});fs.renameSync(temporary,pointerPath);published=true;}
+   const nextPointer={version:1,directory:path.basename(target),ledgerId:restored.ledgerId,receipt};
+   try{writeJson(temporary,nextPointer);fs.renameSync(temporary,pointerPath);published=true;}
    finally{if(!published&&fs.existsSync(temporary))fs.unlinkSync(temporary);}
-   const previous=ledger;ledger=nextLedger;nextLedger=null;lock=newLock;locks.push(newLock);database=path.join(target,'trial.sqlite');rawState=nextState;restoreReceipt=receipt;backupResults.clear();restorePlans.clear();
+   const previous=ledger;ledger=nextLedger;nextLedger=null;lock=newLock;locks.push(newLock);database=path.join(target,'trial.sqlite');rawState=nextState;restoreReceipt=receipt;restorePointer=nextPointer;backupResults.clear();restorePlans.clear();retiredLedgers.add(previous);
    // The durable pointer is the commit point; all previous roots and locks remain until normal close.
    let warning;try{const fd=fs.openSync(anchor.root,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}catch(e){warning='恢复已切换，但目录持久化未确认，请保留所有目录并正常退出：'+e.message;}
-   try{await previous.close();}catch(e){warning='恢复已切换，原连接关闭未确认，请保留原目录：'+e.message;}
+   try{await previous.close();retiredLedgers.delete(previous);}catch(e){warning='恢复已切换，原连接关闭未确认，请保留原目录：'+e.message;}
    return {restored:true,completed:true,...receipt,...(warning?{warning}:{})};
-  }catch(e){if(!published){if(nextLedger)await nextLedger.close();newLock.release();e.message+='；当前账本未切换，恢复前完整备份：'+preserved.directory+'；新候选目录：'+target;}throw e;}
+  }catch(e){
+   if(!published){
+    let safeToRelease=!candidateOpening||e.uncertainConnection===false;
+    const abandoned=nextLedger??candidateDatabase;
+    if(abandoned)try{await abandoned.close();}catch(closeError){safeToRelease=false;retiredLedgers.add(abandoned);locks.push(newLock);e.message+='；候选连接关闭未确认：'+closeError.message;}
+    if(newLock&&safeToRelease)try{newLock.release();}catch(releaseError){e.message+='；候选锁未释放：'+releaseError.message;}
+    else if(newLock&&candidateOpening)e.message+='；候选连接状态无法确认，保留其锁直至进程退出';
+    e.message+='；当前账本未切换，恢复前完整备份：'+preserved.directory+'；新候选目录：'+target;
+   }
+   throw e;
+  }
  }
  function command(input){return run(async()=>{
   if(!input||typeof input!=='object')fail('请求无效');
@@ -189,7 +194,7 @@ function createManagedLedger(root,service,{createBackup,backupDestination}={}){
  function backup(destinationParent){return run(()=>exportBackup(destinationParent));}
  function close(){
   if(closePromise)return closePromise;closing=true;
-  closePromise=(async()=>{if(active)try{await active;}catch{}if(ledger)await ledger.close();ledger=null;if(opening)fail('账本连接关闭状态无法确认，保留锁，请保留原目录');for(const item of [...locks].reverse())item.release();closed=true;})();return closePromise;
+  closePromise=(async()=>{if(active)try{await active;}catch{}if(ledger)await ledger.close();ledger=null;for(const retired of retiredLedgers){await retired.close();retiredLedgers.delete(retired);}if(opening)fail('账本连接关闭状态无法确认，保留锁，请保留原目录');for(const item of [...locks].reverse())item.release();closed=true;})();return closePromise;
  }
  return {command,backup,close,get root(){return lock.root;},get ledgerId(){return lock.marker.ledgerId;}};
 }

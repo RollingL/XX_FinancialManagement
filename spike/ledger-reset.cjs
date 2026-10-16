@@ -91,7 +91,8 @@ function resetLedger({root,requestId,generation,confirmation}={}){
   requireThat(Object.keys(state).sort().join(',')==='advances,batches,expenses,generation,resetReceipt'&&['expenses','batches','advances'].every(key=>Array.isArray(state[key])&&state[key].length===0)&&db.prepare('SELECT count(*) n FROM operations').get().n===0&&db.prepare('SELECT count(*) n FROM attachments').get().n===0,'待清理账本出现新的业务记录，已停止清理，请保留数据');
   for(const item of inventory(ctx)){sameFile(ctx.root,ctx.rootIdentity,true);sameFile(ctx.attachments,ctx.attachmentIdentity,true);sameFile(item.file,item.identity);fs.unlinkSync(item.file);}
   syncDirectory(ctx.attachments);checkpoint(db);db.exec('VACUUM');checkpoint(db);db.close();db=null;
-  const fd=fs.openSync(ctx.database,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0));try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+  // Flush the already-reset database with a writable handle (required on Windows).
+  const fd=fs.openSync(ctx.database,fs.constants.O_RDWR|(fs.constants.O_NOFOLLOW||0));try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
   try{removeJournal(ctx,journal);journal=null;}catch(e){
    // If final directory synchronization fails, put the minimal pending marker back for retry.
    if(!fs.lstatSync(ctx.journalPath,{throwIfNoEntry:false}))journal=writeJournal(ctx,journal.value);throw e;

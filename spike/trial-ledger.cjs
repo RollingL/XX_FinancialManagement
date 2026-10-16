@@ -5,7 +5,6 @@ const {createHash,randomUUID}=require('node:crypto');
 const {isDeepStrictEqual}=require('node:util');
 const Database=require('better-sqlite3');
 const {imageSuffix,MAX_BYTES}=require('./ocr-service.cjs');
-const {INVOICE_KINDS,validateInvoiceCommand,applyInvoiceCommand,applyBatchInvoiceLinks,removeExpenseInvoiceLinks}=require('./invoice-domain.cjs');
 const fail=message=>{throw Object.assign(Error(message),{status:422});};
 function amount(n){if(!Number.isSafeInteger(n)||n<=0)fail('金额须为安全范围内的正整数分');return n;}
 function advanceAmount(state,n,index){if(n===0&&state.advanceDetails?.[index]?.deleted===true)return 0;return amount(n);}
@@ -23,11 +22,18 @@ function createLedger(root,service,managedToken){
  }
  fs.mkdirSync(root,{recursive:true,mode:0o700});
  const attachments=path.join(root,'attachments');fs.mkdirSync(attachments,{recursive:true,mode:0o700});
- const db=new Database(path.join(root,'trial.sqlite'));db.pragma('journal_mode = WAL');db.pragma('synchronous = FULL');
+ let db;
+ try{
+ db=new Database(path.join(root,'trial.sqlite'));db.pragma('journal_mode = WAL');db.pragma('synchronous = FULL');
  db.exec(`CREATE TABLE IF NOT EXISTS trial_state (id INTEGER PRIMARY KEY CHECK(id=1), json TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, digest TEXT NOT NULL, kind TEXT NOT NULL, created_at TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS attachments (id TEXT PRIMARY KEY, file TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL, mime TEXT NOT NULL);`);
  db.prepare('INSERT OR IGNORE INTO trial_state VALUES(1,?)').run(JSON.stringify({expenses:[],batches:[],advances:[]}));
+ }catch(error){
+  try{if(db?.open)db.close();error.uncertainConnection=false;}
+  catch(closeError){error.uncertainConnection=true;error.message+='；初始化连接关闭未确认：'+closeError.message;}
+  throw error;
+ }
  const read=()=>JSON.parse(db.prepare('SELECT json FROM trial_state WHERE id=1').get().json);
  let busy=false;
  async function command(input){
@@ -44,12 +50,12 @@ function createLedger(root,service,managedToken){
   if(busy)fail('正在保存，请稍后再试');busy=true;
   let savedFile,committed=false;
   try{
-   if(!['expense','correct-expense','delete-expense','advance','correct-advance','delete-advance','batch','cancel','delete-batch',...INVOICE_KINDS].includes(input.kind)||typeof input.requestId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(input.requestId))fail('保存请求无效');
+   if(!['expense','correct-expense','delete-expense','set-invoice-issued','advance','correct-advance','delete-advance','batch','cancel','delete-batch'].includes(input.kind)||typeof input.requestId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(input.requestId))fail('保存请求无效');
+   if(Object.hasOwn(input,'invoiceLinks'))fail('发票管理已停用，请刷新页面后重新登记报销');
    if(input.kind==='delete-batch'&&(!Number.isSafeInteger(input.id)||input.id<=0))fail('批次编号无效');
    const digest=createHash('sha256').update(JSON.stringify(input)).digest('hex');
    const previous=db.prepare('SELECT digest FROM operations WHERE id=?').get(input.requestId);
    if(previous){if(previous.digest!==digest)fail('重复请求内容不一致，请重新打开面板');return read();}
-   if(INVOICE_KINDS.includes(input.kind))validateInvoiceCommand(input);
    let attachment;
    if(input.kind==='expense'){
     const e=input.expense;if(!e||!['接待','办公'].includes(e.category))fail('费用类别无效');
@@ -58,7 +64,7 @@ function createLedger(root,service,managedToken){
     const a=input.advance;if(!a||typeof a!=='object')fail('预支到账记录无效');
     amount(a.amount);date(a.date);text(a.note??'',500,false);
    }
-   if(['expense','advance','invoice','invoice-attachment'].includes(input.kind)&&input.image){
+   if(['expense','advance'].includes(input.kind)&&input.image){
      if(typeof input.image.base64!=='string'||input.image.base64.length>Math.ceil(MAX_BYTES/3)*4||!/^[A-Za-z0-9+/]+={0,2}$/.test(input.image.base64))fail('附件无效');
      const bytes=Buffer.from(input.image.base64,'base64'),suffix=imageSuffix(bytes);
      await service.recognize(bytes,{validateOnly:true});
@@ -95,12 +101,21 @@ function createLedger(root,service,managedToken){
      let after=null;
      if(correction){
       const a=input.advance;if(!a||typeof a!=='object'||Array.isArray(a)||Object.keys(a).sort().join(',')!=='amount,date,note')fail('预支修改字段无效');
-      after={amount:amount(a.amount),details:{...(current.details??{}),date:date(a.date),note:text(a.note,500,false)}};
+      after={amount:amount(a.amount),details:{...(current.details??{createdAt}),date:date(a.date),note:text(a.note,500,false)}};
       total(state.advances.map((n,index)=>index===id?after.amount:advanceAmount(state,n,index)));
       if(isDeepStrictEqual(current,after))fail('预支内容没有变化');
       state.advances[id]=after.amount;state.advanceDetails={...details,[id]:after.details};
      }else{state.advances[id]=0;state.advanceDetails={...details,[id]:{...(current.details??{}),deleted:true}};}
      state.advanceEvents=[...events,{requestId:input.requestId,action:input.kind,at:createdAt,advanceId:id,revision:revision+1,before:structuredClone(current),after:after?structuredClone(after):null}];
+    }else if(input.kind==='set-invoice-issued'){
+     if(Object.keys(input).sort().join(',')!=='expected,expectedRevision,id,invoiceIssued,kind,requestId'||!Number.isSafeInteger(input.id)||input.id<=0||!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<0||typeof input.invoiceIssued!=='boolean')fail('开票提醒保存请求无效');
+     const index=state.expenses.findIndex(e=>e.id===input.id);if(index<0)fail('费用不存在');
+     const current=state.expenses[index],events=state.expenseEvents??[];if(!Array.isArray(events))fail('费用操作历史无效，请保留账本');
+     const revision=events.filter(event=>event.expenseId===input.id).length;
+     if(revision!==input.expectedRevision||!isDeepStrictEqual(current,input.expected))fail('费用已变化，请刷新后重新核对');
+     if((current.invoiceIssued===true)===input.invoiceIssued)fail('开票提醒没有变化');
+     const after={...current,invoiceIssued:input.invoiceIssued};state.expenses[index]=after;
+     state.expenseEvents=[...events,{requestId:input.requestId,action:input.kind,at:createdAt,expenseId:input.id,revision:revision+1,before:structuredClone(current),after:structuredClone(after)}];
     }else if(['correct-expense','delete-expense'].includes(input.kind)){
      if(Object.keys(input).sort().join(',')!==(input.kind==='correct-expense'?'expected,expectedRevision,expense,id,kind,requestId':'expected,expectedRevision,id,kind,requestId')||!Number.isSafeInteger(input.id)||input.id<=0||!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<0)fail('费用纠错请求无效');
      const index=state.expenses.findIndex(e=>e.id===input.id);if(index<0)fail('费用不存在');
@@ -112,8 +127,7 @@ function createLedger(root,service,managedToken){
       if(paid>0)fail('费用仍有有效报销分配，请先撤销对应报销批次');
       state.expenses.splice(index,1);
       state.expenseEvents=[...events,{requestId:input.requestId,action:'delete-expense',at:createdAt,expenseId:input.id,revision:revision+1,before:structuredClone(current),after:null}];
-      // Invoice current links are removed by the invoice domain; historical audit remains.
-      removeExpenseInvoiceLinks(state,input.id,{createdAt,requestId:input.requestId});
+      // Retired invoice data and associations remain unchanged for historical backups.
      }else{
      const e=input.expense;if(!e||typeof e!=='object'||Array.isArray(e)||Object.keys(e).sort().join(',')!=='amount,category,date,merchant,note'||!['接待','办公'].includes(e.category))fail('费用纠错字段无效，不能替换附件或添加其他业务字段');
      const after={...current,category:e.category,date:date(e.date),merchant:text(e.merchant,100),amount:amount(e.amount),note:text(e.note,500,false)};
@@ -123,8 +137,6 @@ function createLedger(root,service,managedToken){
      state.expenses[index]=after;
      state.expenseEvents=[...events,{requestId:input.requestId,action:'correct-expense',at:createdAt,expenseId:input.id,revision:revision+1,before:structuredClone(current),after:structuredClone(after)}];
      }
-    }else if(INVOICE_KINDS.includes(input.kind)){
-     applyInvoiceCommand(state,input,{attachment,createdAt,attachmentMetadata:db.prepare('SELECT id,sha256 FROM attachments').all()});
     }else if(input.kind==='batch'){
      date(input.date);if(!Array.isArray(input.allocations)||!input.allocations.length||input.allocations.length>state.expenses.length)fail('分配无效');
      const seen=new Set();
@@ -136,8 +148,7 @@ function createLedger(root,service,managedToken){
      const allocations=input.allocations.map(a=>({expenseId:a.expenseId,amount:a.amount}));total(allocations.map(a=>a.amount));
      const id=Math.max(0,...state.batches.map(b=>b.id),...batchEvents(state).map(event=>event.batchId))+1;
      if(!Number.isSafeInteger(id))fail('批次编号超出安全范围');
-     const invoiceLinks=applyBatchInvoiceLinks(state,input,{createdAt});
-     state.batches.push({id,date:input.date,active:true,allocations,...(invoiceLinks?.length?{invoiceLinks}:{})});
+     state.batches.push({id,date:input.date,active:true,allocations});
     }else if(input.kind==='cancel'){
      const batch=state.batches.find(b=>b.id===input.id);if(!batch)fail('批次不存在');batch.active=false;
     }else{

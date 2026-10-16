@@ -94,7 +94,7 @@ test('integrity_check does not replace JSON, allocation, integer and deletion au
  const f=fixture(t);await populated(f);const baseline=facts(f.source).state[0].json;
  const cases=[
   s=>{s.expenses[0].amount=Number.MAX_SAFE_INTEGER+1;},
-  s=>{s.expenses[0].invoice=2;},
+  s=>{s.expenses[0].invoice=-1;},
   s=>{s.expenses[0].date='2026-02-30';},
   s=>{s.expenses.push({...s.expenses[0]});},
   s=>{s.advances=[Number.MAX_SAFE_INTEGER,1];},
@@ -185,13 +185,6 @@ test('backup publication cannot replace a competing empty backup directory',asyn
  await assert.rejects(f.backup(),{code:'EEXIST'});assert.equal(fs.lstatSync(target).ino,competitor.ino);assert.deepEqual(fs.readdirSync(target),[]);assert.deepEqual(fs.readdirSync(f.destination),[path.basename(target)]);
 });
 
-test('published backup and restore files are flushed through writable handles required by Windows',async t=>{
- const f=fixture(t),open=fs.openSync,sync=fs.fsyncSync,flags=new Map();let checked=0;
- t.mock.method(fs,'openSync',function(file,mode,...args){const fd=open.call(this,file,mode,...args);flags.set(fd,mode);return fd;});
- t.mock.method(fs,'fsyncSync',function(fd){if(fs.fstatSync(fd).isFile()){const mode=flags.get(fd);assert.ok(typeof mode==='string'?/[wa+]/.test(mode):!!(mode&(fs.constants.O_WRONLY|fs.constants.O_RDWR)),'file fsync needs write access');checked++;}return sync.call(this,fd);});
- const saved=await f.backup();restoreBackup({backupDir:saved.directory,targetDir:path.join(f.root,'writable-flush')});assert.ok(checked>=6);
-});
-
 test('fsync failure after a completion marker retains the generated path and rejects success',async t=>{
  const f=fixture(t),before=await populated(f),saved=await f.backup(),original=fs.fsyncSync,target=path.join(f.root,'durability-uncertain');let mode='backup',fired=false;
  t.mock.method(fs,'fsyncSync',function(fd){
@@ -261,4 +254,20 @@ test('any reset journal entry blocks backup before reading business data, includ
   assert.equal(fs.lstatSync(journal).ino,stat.ino);assert.deepEqual(fs.readdirSync(f.destination),[]);fs.rmSync(journal,{recursive:true});
  }
  assert.equal(sourceReads,0);assert.equal(backupCalls,0);assert.deepEqual(facts(f.source),before);assert.equal(fs.readFileSync(outside,'utf8'),'synthetic');
+});
+
+test('backup and restore flush their copies with writable handles required by Windows',async t=>{
+ const f=fixture(t);await populated(f);const opened=new Map(),open=fs.openSync,close=fs.closeSync,flush=fs.fsyncSync;let flushedFiles=0;
+ t.mock.method(fs,'openSync',function(file,flags,...args){const fd=open.call(this,file,flags,...args);opened.set(fd,{file,flags});return fd;});
+ t.mock.method(fs,'closeSync',function(fd){opened.delete(fd);return close.call(this,fd);});
+ t.mock.method(fs,'fsyncSync',function(fd){
+  if(fs.fstatSync(fd).isFile()){
+   const entry=opened.get(fd);assert.ok(entry,'the application owns the flushing descriptor');
+   assert.notEqual(entry.file,path.join(f.source,'trial.sqlite'),'backup never flushes the live source');
+   assert.ok(typeof entry.flags==='string'?/[wa+]/.test(entry.flags):(entry.flags&3)!==fs.constants.O_RDONLY,'Windows requires a writable file descriptor');flushedFiles++;
+  }
+  return flush.call(this,fd);
+ });
+ const saved=await f.backup(),restored=restoreBackup({backupDir:saved.directory,targetDir:path.join(f.root,'windows-flush')});
+ assert.ok(flushedFiles>0);assert.deepEqual(facts(restored.directory),facts(f.source));
 });

@@ -2,7 +2,7 @@
   "name": "xx-finance-stage0",
   "version": "0.0.1",
   "private": true,
-  "description": "阶段 0 交互原型及依赖探针，不是真实账本",
+  "description": "钱来财务管理系统，本地离线账本",
   "main": "spike/main.cjs",
   "scripts": {
     "dev": "vite --host 127.0.0.1",

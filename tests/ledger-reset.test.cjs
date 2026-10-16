@@ -111,3 +111,11 @@ test('invalid pending journals block access and unexpected new facts during pend
  const changed=state(f);changed.syntheticUnexpected='do not erase';f.db(db=>db.prepare('UPDATE trial_state SET json=? WHERE id=1').run(JSON.stringify(changed)));const pendingFacts=facts(f),pendingFiles=files(f);
  assert.throws(()=>resumeReset(f.args),e=>e.code==='RESET_PENDING'&&/新的业务记录/.test(e.message));assert.deepEqual(facts(f),pendingFacts);assert.deepEqual(files(f),pendingFiles);
 });
+
+test('reset flushes the final database with a writable Windows-compatible handle',async t=>{
+ const f=await fixture(t),open=fs.openSync,close=fs.closeSync,flush=fs.fsyncSync,opened=new Map();let databaseFlushes=0;
+ t.mock.method(fs,'openSync',function(file,flags,...args){const fd=open.call(this,file,flags,...args);opened.set(fd,{file,flags});return fd;});
+ t.mock.method(fs,'closeSync',function(fd){opened.delete(fd);return close.call(this,fd);});
+ t.mock.method(fs,'fsyncSync',function(fd){const entry=opened.get(fd);if(entry?.file===path.join(f.root,'trial.sqlite')){assert.equal(entry.flags&3,fs.constants.O_RDWR);databaseFlushes++;}return flush.call(this,fd);});
+ assertEmpty(f,resetLedger(f.args));assert.equal(databaseFlushes,1);assert.deepEqual(readResetStatus(f.root),{pending:false});
+});

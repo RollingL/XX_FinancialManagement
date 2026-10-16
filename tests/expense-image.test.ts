@@ -29,7 +29,7 @@ function text(value:any):string{
  if(value&&typeof value==='object')return text(value.props?.children);
  return typeof value==='string'||typeof value==='number'?String(value):'';
 }
-function harness(options:{kind?:'expense'|'advance'|'invoice';disabled?:boolean;attachment?:boolean;validate?:typeof validateImageFile;recognize?:(file:File,signal:AbortSignal)=>Promise<any>;read?:()=>Promise<any>}={}){
+function harness(options:{kind?:'expense'|'advance';disabled?:boolean;attachment?:boolean;validate?:typeof validateImageFile;recognize?:(file:File,signal:AbortSignal)=>Promise<any>;read?:()=>Promise<any>}={}){
  const slots:any[]=[],effects:Array<()=>void>=[],cleanups=new Map<number,()=>void>();let cursor=0,tree:Node;
  const files:Array<File|null>=[],fields:any[]=[],busy:boolean[]=[],created:string[]=[],revoked:string[]=[],reads:any[]=[],recognitions:File[]=[];
  const react={
@@ -48,7 +48,7 @@ function harness(options:{kind?:'expense'|'advance'|'invoice';disabled?:boolean;
  };
  const exports:Record<string,any>={};
  runInNewContext(code,{exports,require:(name:string)=>{assert.ok(name in modules,`Unexpected dependency ${name}`);return modules[name];},AbortController,Blob,Uint8Array,atob,URL:{createObjectURL:()=>{const url=`blob:synthetic-${created.length}`;created.push(url);return url;},revokeObjectURL:(url:string)=>revoked.push(url)}});
- const props={kind:options.kind??'invoice',disabled:options.disabled??false,onFile:(file:File|null)=>files.push(file),onFields:(value:any)=>fields.push(value),onBusy:(value:boolean)=>busy.push(value)};
+ const props={kind:options.kind??'advance',disabled:options.disabled??false,onFile:(file:File|null)=>files.push(file),onFields:(value:any)=>fields.push(value),onBusy:(value:boolean)=>busy.push(value)};
  function render(){cursor=0;tree=options.attachment?exports.ExpenseAttachment({id:'synthetic-original',kind:props.kind}):exports.default(props);while(effects.length)effects.shift()!();return tree;}
  function find(type:string,label?:string){render();const found=nodes(tree).find(node=>node.type===type&&(label===undefined||text(node)===label));assert.ok(found,`Missing ${type} ${label??''}`);return found;}
  render();
@@ -59,25 +59,24 @@ function harness(options:{kind?:'expense'|'advance'|'invoice';disabled?:boolean;
  };
 }
 
-test('发票使用原图文案和原生文件输入，手动核对且无可选/OCR提示',()=>{
- const h=harness();assert.equal(h.render().props['aria-label'],'发票原图');
- assert.equal(text(h.find('label')),'上传发票原图');
+test('到账截图保留可选上传，不识别或自动填写金额',()=>{
+ const h=harness();assert.equal(h.render().props['aria-label'],'到账截图');
+ assert.equal(text(h.find('label')),'上传到账截图（可选）');
  assert.equal(h.find('input').props.type,'file');assert.equal(h.find('input').props.accept,'image/png,image/jpeg');
- assert.match(text(h.render()),/身份和票面金额请手动核对/);assert.match(text(h.render()),/不会自动新增费用或报销/);
- assert.doesNotMatch(text(h.render()),/（可选）|本机离线识别/);assert.equal(h.recognitions.length,0);h.unmount();
+ assert.match(text(h.render()),/不识别或自动填写金额/);assert.equal(h.recognitions.length,0);h.unmount();
 });
 
-test('发票选择 PNG/JPEG 仅回传附件，替换和移除释放 URL 且不清空文字',async()=>{
+test('到账截图选择 PNG/JPEG 仅回传附件，替换和移除释放 URL 且不清空文字',async()=>{
  const h=harness(),first=png(),second=jpeg();h.pick([first]);await settle();
  assert.equal(h.files[0],first);assert.deepEqual(h.busy,[true,false]);
- assert.equal(h.find('img').props.alt,'待保存的发票原图');
+ assert.equal(h.find('img').props.alt,'待保存预支的到账截图原图');
  h.pick([second]);await settle();assert.equal(h.files[1],second);assert.deepEqual(h.revoked,['blob:synthetic-0']);
- h.find('button','移除发票原图').props.onClick();assert.equal(h.files.at(-1),null);
+ h.find('button','移除到账截图').props.onClick();assert.equal(h.files.at(-1),null);
  assert.deepEqual(h.revoked,['blob:synthetic-0','blob:synthetic-1']);assert.equal(h.fields.length,0);assert.equal(h.recognitions.length,0);assert.equal(h.reads.length,0);
  assert.equal(nodes(h.render()).some(node=>node.type==='img'),false);h.unmount();
 });
 
-test('发票拖拽阻止文件导航，校验忙碌期间的重复拖拽不会打断请求',async()=>{
+test('到账截图拖拽阻止文件导航，校验忙碌期间的重复拖拽不会打断请求',async()=>{
  const gate=deferred<void>();let checks=0;
  const h=harness({validate:async()=>{checks++;await gate.promise;}}),image=png();
  h.drop([image]);h.drop([png()]);assert.equal(checks,1);assert.equal(h.find('input').props.disabled,true);
@@ -113,9 +112,9 @@ test('预支仍只保留截图；费用仍填识别字段，允许人工停止�
  gate.resolve({expense_fields:{amount_cents:9999}});await settle();assert.equal(pending.fields.length,count);assert.equal(pending.busy.at(-1),false);pending.unmount();
 });
 
-test('已保存原票附件只调用附件读取，标题/alt 清楚且卸载释放 URL',async()=>{
- const h=harness({attachment:true});await settle();assert.equal(h.find('h3').props.children.join(''),'发票原图附件');
- assert.equal(h.find('img').props.alt,'该张原票已保留的发票原图');
+test('已保存到账附件只调用附件读取，标题/alt 清楚且卸载释放 URL',async()=>{
+ const h=harness({attachment:true});await settle();assert.equal(h.find('h3').props.children.join(''),'到账截图附件');
+ assert.equal(h.find('img').props.alt,'该笔预支已保留的到账截图');
  assert.equal(h.reads.length,1);assert.equal(h.reads[0].kind,'attachment');assert.equal(h.reads[0].id,'synthetic-original');assert.equal(h.recognitions.length,0);
  h.unmount();assert.deepEqual(h.revoked,h.created);
  const late=deferred<any>(),pending=harness({attachment:true,read:()=>late.promise});pending.unmount();late.resolve({mime:'image/png',base64:'iVBORw0KGgo='});await settle();assert.equal(pending.created.length,0);

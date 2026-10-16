@@ -2,9 +2,8 @@ import {decimal,paid,remaining} from './model.ts';
 import type {Batch,Expense} from './model.ts';
 import type {LedgerState} from './ledger.ts';
 import {matchesExpense} from './records.ts';
-import {expenseHasInvoice,invoiceCode,invoiceExpenseIds} from './invoice-model.ts';
 
-export type ExpenseFilters={category:'全部费用'|'接待'|'办公';query:string;status:string;startDate:string;endDate:string;missing:boolean};
+export type ExpenseFilters={category:'全部费用'|'接待'|'办公';query:string;status:string;startDate:string;endDate:string};
 
 function validDate(value:string){
  return /^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value;
@@ -23,11 +22,10 @@ export function filterExpenses(state:LedgerState,filters:ExpenseFilters):Expense
  return state.expenses.filter(expense=>(filters.category==='全部费用'||expense.category===filters.category)
   &&matchesExpense(expense,filters.query)
   &&(!filters.startDate||expense.date>=filters.startDate)&&(!filters.endDate||expense.date<=filters.endDate)
-  &&(filters.status==='全部状态'||expenseStatus(expense,state.batches)===filters.status)
-  &&(!filters.missing||!expenseHasInvoice(state,expense.id)));
+  &&(filters.status==='全部状态'||expenseStatus(expense,state.batches)===filters.status));
 }
 
-const headers=['费用编号','实际支出日期','费用类别','商户/采购摘要','备注','支出金额（元）','已报销金额（元）','待报销金额（元）','报销状态','关联发票编号','发票状态'];
+const headers=['费用编号','实际支出日期','费用类别','商户/采购摘要','备注','支出金额（元）','已报销金额（元）','待报销金额（元）','报销状态'];
 function textCell(value:string){
  // Normalize only for detection: exported business text otherwise keeps its original bytes.
  const unsafe=/^[=+\-@\s\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u.test(value.normalize('NFKC'));
@@ -37,11 +35,8 @@ export function expenseCsv(state:LedgerState,expenses:Expense[]):string{
  const rows=[headers.map(textCell).join(',')];
  for(const expense of expenses){
   if(!Number.isSafeInteger(expense.id))throw new Error('费用编号超出安全范围');
-  const linked=(state.invoices??[]).filter(invoice=>invoiceExpenseIds(invoice).includes(expense.id)).map(invoice=>invoiceCode(invoice.id));
-  if(expense.invoice>0)linked.push('legacy标记');
   rows.push([String(expense.id),textCell(expense.date),textCell(expense.category),textCell(expense.merchant),textCell(expense.note),
-   decimal(expense.amount),decimal(paid(expense.id,state.batches)),decimal(remaining(expense,state.batches)),textCell(expenseStatus(expense,state.batches)),
-   textCell(linked.join(';')),textCell(expenseHasInvoice(state,expense.id)?'已关联':'无发票')].join(','));
+   decimal(expense.amount),decimal(paid(expense.id,state.batches)),decimal(remaining(expense,state.batches)),textCell(expenseStatus(expense,state.batches))].join(','));
  }
  return '\uFEFF'+rows.join('\r\n')+'\r\n';
 }

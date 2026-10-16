@@ -6,18 +6,37 @@ const {execFileSync}=require('node:child_process');
 const assert=require('node:assert/strict');
 
 function launchScript(id,probe=false){
- const lines=['@echo off','setlocal','cd /d "%~dp0"','if not exist "%~dp0app\\xx-finance-stage0.exe" goto :failed',
-  'set "TRIAL_ROOT=%~dp0trial-data"','if exist "%TRIAL_ROOT%" (',
-  '  if not exist "%TRIAL_ROOT%\\trial-marker.txt" goto :failed',
-  `  findstr /x /c:"${id}" "%TRIAL_ROOT%\\trial-marker.txt" >nul || goto :failed`,
-  ') else (','  mkdir "%TRIAL_ROOT%" || goto :failed',`  >"%TRIAL_ROOT%\\trial-marker.txt" echo ${id}`,')',
-  'if not exist "%TRIAL_ROOT%\\user-data" mkdir "%TRIAL_ROOT%\\user-data" || goto :failed',
-  'if not exist "%~dp0backups" mkdir "%~dp0backups" || goto :failed',
-  'set "ELECTRON_RUN_AS_NODE="','set "XX_FINANCE_MANAGED_TRIAL=1"','set "XX_FINANCE_USER_DATA_DIR=%TRIAL_ROOT%\\user-data"',
-  'set "XX_FINANCE_DATA_DIR=%TRIAL_ROOT%\\user-data\\stage0-trial"','set "XX_FINANCE_BACKUP_DIR=%~dp0backups"',
-  probe?'"%~dp0app\\xx-finance-stage0.exe" --probe >"%TRIAL_ROOT%\\probe-result.txt" 2>"%TRIAL_ROOT%\\probe-error.txt"':'start "" /wait "%~dp0app\\xx-finance-stage0.exe"',
-  'if errorlevel 1 goto :failed',probe?'echo Check completed. Keep trial-data\\probe-result.txt for review.':'echo Closed. Your synthetic test data is preserved in trial-data.',
-  'pause','exit /b 0',':failed','echo Stopped. Do not delete existing data or disable security software. Report this message.','pause','exit /b 1'];
+ assert.match(id,/^[A-Za-z0-9-]{1,160}$/,'Invalid portable build identity');
+ const lines=['@echo off','setlocal EnableExtensions DisableDelayedExpansion','set "ERRORLEVEL="','set "RANDOM="',
+  'cd /d "%~dp0" || goto :failed','if not exist "%~dp0Qianlai.exe" goto :failed',
+  'if not exist "%~dp0diagnostics" mkdir "%~dp0diagnostics" || goto :failed',
+  `set "LOG_DIR=%~dp0diagnostics\\${probe?'probe':'start'}-%RANDOM%-%RANDOM%"`,
+  'mkdir "%LOG_DIR%" || goto :failed',
+  'set "ELECTRON_ENABLE_LOGGING=1"','set "ELECTRON_LOG_FILE=%LOG_DIR%\\chromium.log"',
+  'set "ELECTRON_ENABLE_STACK_DUMPING=1"','set "XX_FINANCE_STARTUP_DIAGNOSTICS=1"',
+  `>"%LOG_DIR%\\status.txt" echo Build=${id}`,
+  '>>"%LOG_DIR%\\status.txt" echo Started=%DATE% %TIME%',
+  'ver >>"%LOG_DIR%\\status.txt"',
+  '"%SystemRoot%\\System32\\tasklist.exe" /fi "IMAGENAME eq xx-finance-stage0.exe" /fo list >"%LOG_DIR%\\processes-before.txt" 2>&1',
+  'if exist "%~dp0trial-data\\user-data\\stage0-trial\\.writer-lock" (>>"%LOG_DIR%\\status.txt" echo AnchorLock=present) else (>>"%LOG_DIR%\\status.txt" echo AnchorLock=absent)',
+  'for /d %%D in ("%~dp0trial-data\\user-data\\restored-*") do if exist "%%D\\.writer-lock" >>"%LOG_DIR%\\status.txt" echo RestoredLock=%%~nxD',
+  'echo Diagnostic mode only. For daily use, double-click Qianlai.exe.',
+  'echo Diagnostic folder: "%LOG_DIR%"',
+  probe?'start "" /wait "%~dp0Qianlai.exe" --diagnostics --probe >"%LOG_DIR%\\stdout.txt" 2>"%LOG_DIR%\\stderr.txt"':'start "" /wait "%~dp0Qianlai.exe" --diagnostics >"%LOG_DIR%\\stdout.txt" 2>"%LOG_DIR%\\stderr.txt"',
+  'set "LAUNCH_EXIT=%errorlevel%"',
+  '>>"%LOG_DIR%\\status.txt" echo ExitCode=%LAUNCH_EXIT%',
+  '>>"%LOG_DIR%\\status.txt" echo Ended=%DATE% %TIME%',
+  '"%SystemRoot%\\System32\\tasklist.exe" /fi "IMAGENAME eq xx-finance-stage0.exe" /fo list >"%LOG_DIR%\\processes-after.txt" 2>&1',
+  'if exist "%~dp0trial-data\\user-data\\stage0-trial\\.writer-lock" (>>"%LOG_DIR%\\status.txt" echo AnchorLock=present) else (>>"%LOG_DIR%\\status.txt" echo AnchorLock=absent)',
+  'for /d %%D in ("%~dp0trial-data\\user-data\\restored-*") do if exist "%%D\\.writer-lock" >>"%LOG_DIR%\\status.txt" echo RestoredLock=%%~nxD',
+  'if not "%LAUNCH_EXIT%"=="0" goto :runtime_failed',
+  probe?'echo Runtime check completed. Keep this diagnostic folder for review.':'echo Closed. Your data is preserved in trial-data.',
+  'echo Logs: "%LOG_DIR%"','pause','exit /b 0',
+  ':runtime_failed','echo Qianlai stopped. Exit code: %LAUNCH_EXIT%',
+  'type "%LOG_DIR%\\stderr.txt"','echo Logs: "%LOG_DIR%"',
+  'echo Do not delete data or locks, or disable security software.','pause','exit /b %LAUNCH_EXIT%',
+  ':failed','echo Stopped before launch. Check complete extraction, Qianlai.exe and folder write access.',
+  'echo Do not delete existing data or disable security software. Report this message.','pause','exit /b 1'];
  return lines.join('\r\n')+'\r\n';
 }
 function filesBelow(root){
@@ -40,12 +59,12 @@ function verifyInventory(root,manifest){
  }
  assert.deepEqual(filesBelow(root).map(file=>path.relative(root,file).replaceAll('\\','/')).filter(file=>file!=='file-hashes.json').sort(),[...names].sort());
 }
-function probePackage(app){
+function probePackage(app,launcher){
  const isolated=fs.mkdtempSync(path.join(os.tmpdir(),'qianlai-win-build-probe-'));
  try{
   const env={...process.env,XX_FINANCE_MANAGED_TRIAL:'1',XX_FINANCE_USER_DATA_DIR:isolated,XX_FINANCE_DATA_DIR:path.join(isolated,'ledger'),XX_FINANCE_BACKUP_DIR:path.join(isolated,'backups'),PYTHONPATH:'',PYTHONHOME:'',PATH:path.join(process.env.SystemRoot,'System32')};
   delete env.ELECTRON_RUN_AS_NODE;
-  const output=execFileSync(path.join(app,'xx-finance-stage0.exe'),['--probe'],{env,encoding:'utf8',maxBuffer:4*1024*1024,windowsHide:true});
+  const output=execFileSync(launcher||path.join(app,'xx-finance-stage0.exe'),['--probe'],{env,encoding:'utf8',maxBuffer:4*1024*1024,windowsHide:true});
   const report=JSON.parse(output);assert.equal(report.packaged,true);assert.equal(report.sqlite?.status,'passed');assert.equal(report.sqlite?.platform,'win32');assert.equal(report.sqlite?.arch,'x64');assert.equal(report.ocr?.status,'passed');
   const image=path.join(app,'resources','ocr-sample.png');
   const requests=[{id:'synthetic-validation',image_path:image,validate_only:true},{id:'synthetic-ocr',image_path:image}];
@@ -62,7 +81,7 @@ async function prepare(){
   const extracted=fs.realpathSync(process.argv[3]),temp=fs.realpathSync(process.env.RUNNER_TEMP),relative=path.relative(temp,extracted);
   assert.ok(relative&&!relative.startsWith('..')&&!path.isAbsolute(relative),'Only verify the new runner temp extraction');
   verifyInventory(extracted,JSON.parse(fs.readFileSync(path.join(extracted,'file-hashes.json'),'utf8')));
-  console.log(JSON.stringify({scope:'Extracted portable candidate on Windows runner; not clean Windows 10 acceptance',probe:probePackage(path.join(extracted,'app'))},null,2));return;
+  console.log(JSON.stringify({scope:'Extracted portable candidate on Windows runner; not clean Windows 10 acceptance',probe:probePackage(path.join(extracted,'app'),path.join(extracted,'Qianlai.exe'))},null,2));return;
  }
  assert.equal(process.argv.length,2);
  const root=path.resolve(__dirname,'..'),sha=process.env.GITHUB_SHA;
@@ -83,8 +102,12 @@ async function prepare(){
   'PP-OCRv6_rec_small.onnx':'6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884'};
  for(const [name,hash] of Object.entries(models))assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(worker,'_internal','models',name))).digest('hex'),hash,`Model checksum mismatch: ${name}`);
  for(const file of fs.readdirSync(path.join(worker,'_internal')).filter(name=>/^(?:msvcp|vcruntime|concrt).*\.dll$/i.test(name)))fs.copyFileSync(path.join(worker,'_internal',file),path.join(app,file),fs.constants.COPYFILE_EXCL);
- const report=probePackage(app);
+ const launcher=path.join(root,'out','windows-launcher','Qianlai.exe');
+ require('./windows-package-check.cjs').checkWindowsLauncher(launcher);
  fs.mkdirSync(destination,{recursive:true});fs.cpSync(app,path.join(destination,'app'),{recursive:true});
+ fs.copyFileSync(launcher,path.join(destination,'Qianlai.exe'));
+ fs.writeFileSync(path.join(destination,'app','resources','windows-portable.json'),JSON.stringify({format:1,product:'qianlai-finance'}));
+ const report=probePackage(path.join(destination,'app'),path.join(destination,'Qianlai.exe'));
  fs.mkdirSync(path.join(destination,'samples'));
  fs.copyFileSync(path.join(root,'spike','fixtures','ocr-sample.png'),path.join(destination,'samples','synthetic-payment.png'));
  fs.writeFileSync(path.join(destination,'START-TEST.cmd'),launchScript(buildId));

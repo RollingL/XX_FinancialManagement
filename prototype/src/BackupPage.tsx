@@ -4,7 +4,7 @@ import './backup.css';
 
 type MaintenanceInfo={supported:boolean;backupConfigured:boolean;canReset:boolean;canRestore?:boolean;generation?:string;pendingReset?:{requestId:string;fromGeneration:string}|null};
 type Request={requestId:string;generation:string};
-type BackupResult={directory:string;summary?:{expenseCount?:number;advanceCount?:number;batchCount?:number;invoiceCount?:number;attachmentFileCount?:number}};
+type BackupResult={directory:string;summary?:{expenseCount?:number;advanceCount?:number;batchCount?:number;attachmentFileCount?:number}};
 type Activity='info'|'backup'|'reset'|'restore'|null;
 type RestorePlan={token:string;generation:string;directory:string;createdAt:string;summary:NonNullable<BackupResult['summary']>};
 const CONFIRMATION='清空当前账本';
@@ -90,22 +90,22 @@ export default function BackupPage({onResetComplete}:{onResetComplete:(warning?:
   }catch(e){
    const original=message(e);
    try{await readInfo();if(mounted.current)setError(`清空尚未确认完成：${original}`);}
-   catch{if(mounted.current){setInfo(null);setError(`清空结果未能确认：${original} 请重新读取维护状态后重试。`);}}
+   catch{if(mounted.current){setInfo(null);setError(`清空结果未能确认：${original} 请刷新状态后重试。`);}}
   }finally{finish();}
  }
 
  return <div className="backup-page" aria-busy={!!busy}>
-  <div className="backup-status-row"><p>备份保存在本机；清空操作仅作用于当前隔离试用账本。</p><button type="button" disabled={!!busy} onClick={()=>void refresh()}>{busy==='info'?'正在读取…':'重新读取维护状态'}</button></div>
-  {!info&&!error&&<p className="backup-message" role="status">正在确认当前账本的维护状态…</p>}
-  {info&&!info.supported&&<p className="backup-message" role="status">当前账本入口不支持这里的备份与清空。不会接管、迁移或改写原账本，请使用已配置的隔离试用入口。</p>}
+  <div className="backup-status-row"><p>备份保存在本机。恢复或清空前，请先核对当前账本和备份内容。</p><button type="button" disabled={!!busy} onClick={()=>void refresh()}>{busy==='info'?'正在读取…':'刷新状态'}</button></div>
+  {!info&&!error&&<p className="backup-message" role="status">正在读取备份与数据管理状态…</p>}
+  {info&&!info.supported&&<p className="backup-message" role="status">当前账本暂无法使用备份与数据管理，请保留原有文件并联系维护人员。原账本不会被改写。</p>}
   {error&&<p className="error" role="alert">{error}</p>}
   {pending&&<div className="backup-pending" role="alert"><h2>清空尚未完成</h2><p>上次清空尚未确认完成，仍需后续清理与核对。记账及备份已锁定，请继续完成清空。</p><p>重新输入确认文字后，将继续同一次操作。</p></div>}
 
   <section className="backup-card" aria-labelledby="backup-export-title">
    <div className="backup-card-heading"><h2 id="backup-export-title">完整备份</h2><span className="backup-badge">本机保存</span></div>
-   <p>保存账本、受管附件及校验清单。清空前如需保留记录，请先导出一份完整备份。</p>
+   <p>保存全部账目、开票标记和附件。升级或清空前，请先导出一份完整备份。</p>
    <div className="backup-actions"><button type="button" className="primary" disabled={!!busy||!canBackup} onClick={()=>void exportBackup()}>{busy==='backup'?'正在导出…':'导出完整备份'}</button></div>
-   {info?.supported&&!info.backupConfigured&&<p className="backup-help">尚未设置本机备份位置，请先完成本地配置。</p>}
+   {info?.supported&&!info.backupConfigured&&<p className="backup-help">尚未设置备份保存位置，请联系维护人员检查。</p>}
    {backup&&<div className="backup-result" role="status"><h3>最近保存的完整备份</h3><p className="backup-location">{backup.directory}</p>{backup.summary&&<p className="backup-help">{[
     ['费用',backup.summary.expenseCount,'笔'],['预支',backup.summary.advanceCount,'笔'],['报销批次',backup.summary.batchCount,'批'],['附件',backup.summary.attachmentFileCount,'个'],
    ].filter(([,value])=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0).map(([label,value,unit])=>`${label} ${value} ${unit}`).join(' · ')}</p>}</div>}
@@ -115,11 +115,11 @@ export default function BackupPage({onResetComplete}:{onResetComplete:(warning?:
   <section className="backup-card" aria-labelledby="backup-restore-title">
    <div className="backup-card-heading"><h2 id="backup-restore-title">恢复备份</h2><span className="backup-badge">先校验与预览</span></div>
    <p>选择完整备份目录。恢复后切换到备份中的账本；当前账本会先自动完整备份并保留在原目录。</p>
-   {!window.localLedger&&<label className="field">本机完整备份目录<input value={restorePath} onChange={e=>setRestorePath(e.target.value)} disabled={!!busy} placeholder="输入包含 manifest.json 的目录路径"/></label>}
+   {!window.localLedger&&<label className="field">本机完整备份目录<input value={restorePath} onChange={e=>setRestorePath(e.target.value)} disabled={!!busy} placeholder="输入完整备份文件夹的路径"/></label>}
    <div className="backup-actions"><button type="button" disabled={!!busy||!info?.canRestore||!!pending||(!window.localLedger&&!restorePath.trim())} onClick={()=>void chooseRestore()}>{busy==='restore'?'正在校验…':'选择并校验备份'}</button></div>
    {restorePlan&&<form className="backup-confirmation" onSubmit={e=>void confirmRestore(e)}>
-    <p className="backup-location">{restorePlan.directory}</p><p>备份时间：{new Date(restorePlan.createdAt).toLocaleString()} · 费用 {restorePlan.summary.expenseCount} 笔 · 预支 {restorePlan.summary.advanceCount} 笔 · 报销 {restorePlan.summary.batchCount} 批 · 发票 {restorePlan.summary.invoiceCount} 张 · 附件 {restorePlan.summary.attachmentFileCount} 个</p>
-    <p id="restore-help">确认后当前页面使用的账本将替换为此备份。输入 <strong>恢复备份</strong> 继续；旧表单会失效。</p>
+    <p className="backup-location">{restorePlan.directory}</p><p>备份时间：{new Date(restorePlan.createdAt).toLocaleString()} · 费用 {restorePlan.summary.expenseCount} 笔 · 预支 {restorePlan.summary.advanceCount} 笔 · 报销 {restorePlan.summary.batchCount} 批 · 附件 {restorePlan.summary.attachmentFileCount} 个</p>
+    <p id="restore-help">确认后将使用备份中的账本，当前账本另行保留。输入 <strong>恢复备份</strong> 继续；尚未保存的内容不会保留。</p>
     <label className="field">确认文字<input value={restoreText} onChange={e=>setRestoreText(e.target.value)} disabled={!!busy} autoComplete="off" aria-describedby="restore-help" placeholder="恢复备份"/></label>
     <div className="backup-actions"><button type="button" disabled={!!busy} onClick={()=>{setRestorePlan(null);setRestoreText('');restoreRequest.current=null;}}>取消</button><button className="primary" type="submit" disabled={!!busy||restoreText!=='恢复备份'}>{busy==='restore'?'正在恢复…':'备份当前账本并恢复'}</button></div>
    </form>}
@@ -127,7 +127,7 @@ export default function BackupPage({onResetComplete}:{onResetComplete:(warning?:
 
   <section className="backup-card backup-danger" aria-labelledby="backup-reset-title">
    <div className="backup-card-heading"><h2 id="backup-reset-title">清空所有数据</h2><span className="backup-badge backup-danger-badge">不可撤销</span></div>
-   <p>清空当前账本的全部费用、预支、报销批次及分配、受管附件和业务数据，资金余额全部归零。</p>
+   <p>清空当前账本的全部费用、预支、报销、开票标记、已保存附件和其他业务数据，资金余额归零。</p>
    <p className="backup-help">外部原图、另存备份、其他账本和软件保留。操作无法在软件内撤销。</p>
    {!confirming?<div className="backup-actions"><button type="button" disabled={!!busy||!canBackup} onClick={()=>void exportBackup()}>先导出完整备份</button><button type="button" className="backup-danger-button" disabled={!!busy||!canReset} onClick={openConfirmation}>{pending?'继续完成清空':'清空所有数据'}</button></div>:
     <form className="backup-confirmation" onSubmit={event=>void reset(event)}>

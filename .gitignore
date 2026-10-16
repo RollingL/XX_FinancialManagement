@@ -27,6 +27,7 @@
 !/prototype/src/*.css
 !/spike/
 !/spike/*.cjs
+!/spike/windows-launcher.cpp
 !/spike/*.py
 !/spike/*.spec
 !/spike/build-windows-trial.ps1
@@ -41,6 +42,7 @@
 !/tests/*.py
 !/tests/fixtures/
 !/tests/fixtures/ocr-worker.cjs
+!/tests/fixtures/windows-launcher-child.cpp
 
 # Only these previously documented synthetic images belong in source control.
 !/spike/fixtures/

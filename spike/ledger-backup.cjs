@@ -44,7 +44,8 @@ function fileBytes(file,max){
 }
 function jsonFile(file,max){try{return JSON.parse(fileBytes(file,max).toString('utf8'));}catch(e){fail(`JSON 文件无效：${e.message}`);}}
 function writeFile(file,bytes){const fd=fs.openSync(file,'wx',0o600);try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
-// Windows FlushFileBuffers requires a writable handle; these are newly copied owned files.
+// These files are newly created backup/restore copies. Windows FlushFileBuffers needs
+// a writable handle; the live source database remains readonly throughout backup.
 function syncFile(file){const fd=fs.openSync(file,fs.constants.O_RDWR|(fs.constants.O_NOFOLLOW||0));try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
 function syncDirectory(dir){
  let fd;try{fd=fs.openSync(dir,'r');fs.fsyncSync(fd);}catch(e){
@@ -110,7 +111,8 @@ function inspectDatabase(file){
   let expenseTotal=0n,advanceTotal=0n,reimbursed=0n,allocationCount=0;
   const addReference=id=>{if(id!==undefined){requireThat(typeof id==='string'&&UUID.test(id),'附件引用无效');references.add(id);}};
   function validateExpense(e){
-   requireThat(object(e)&&positive(e.id)&&positive(e.amount)&&validDate(e.date)&&['接待','办公'].includes(e.category)&&safeText(e.merchant,100,true)&&safeText(e.note,500)&&Number.isSafeInteger(e.invoice)&&e.invoice>=0&&e.invoice<=e.amount,'费用记录无效');
+   requireThat(object(e)&&positive(e.id)&&positive(e.amount)&&validDate(e.date)&&['接待','办公'].includes(e.category)&&safeText(e.merchant,100,true)&&safeText(e.note,500)&&Number.isSafeInteger(e.invoice)&&e.invoice>=0,'费用记录无效');
+   if(e.invoiceIssued!==undefined)requireThat(typeof e.invoiceIssued==='boolean','开票提醒须为布尔值');
    if(e.attachmentId!==undefined)requireThat(typeof e.attachmentId==='string'&&UUID.test(e.attachmentId),'费用附件标识无效');
   }
   for(const e of state.expenses){
@@ -143,16 +145,20 @@ function inspectDatabase(file){
   const operationMap=new Map();
   const invoiceActions=['invoice','invoice-identity','invoice-attachment','invoice-allocate','invoice-link','invoice-edit','invoice-delete'];
   const sharedInvoiceActions=['batch-invoice-link','expense-invoice-unlink'];
-  for(const op of operations){requireThat(UUID.test(op.id)&&HASH.test(op.digest)&&['expense','advance','batch','cancel','delete-batch','correct-expense','delete-expense','correct-advance','delete-advance',...invoiceActions].includes(op.kind)&&timestamp(op.created_at),'请求操作记录无效');operationMap.set(op.id,op);}
+  for(const op of operations){requireThat(UUID.test(op.id)&&HASH.test(op.digest)&&['expense','advance','batch','cancel','delete-batch','correct-expense','delete-expense','set-invoice-issued','correct-advance','delete-advance',...invoiceActions].includes(op.kind)&&timestamp(op.created_at),'请求操作记录无效');operationMap.set(op.id,op);}
   const corrections=state.expenseEvents===undefined?[]:state.expenseEvents;requireThat(Array.isArray(corrections),'费用纠错审计无效');
   const correctionRequests=new Set(),latestCorrection=new Map(),editable=new Set(['category','date','merchant','amount','note']);
   const stableFields=expense=>Object.fromEntries(Object.entries(expense).filter(([key])=>!editable.has(key)));
   for(const event of corrections){
-   requireThat(object(event)&&['correct-expense','delete-expense'].includes(event.action)&&typeof event.requestId==='string'&&UUID.test(event.requestId)&&!correctionRequests.has(event.requestId)&&timestamp(event.at)&&positive(event.expenseId)&&positive(event.revision),'费用纠错审计字段无效');
+   requireThat(object(event)&&['correct-expense','delete-expense','set-invoice-issued'].includes(event.action)&&typeof event.requestId==='string'&&UUID.test(event.requestId)&&!correctionRequests.has(event.requestId)&&timestamp(event.at)&&positive(event.expenseId)&&positive(event.revision),'费用纠错审计字段无效');
    same(Object.keys(event).sort(),['requestId','action','at','expenseId','revision','before','after'].sort(),'费用纠错审计包含未知字段');
    validateExpense(event.before);addReference(event.before.attachmentId);if(event.action==='delete-expense'){requireThat(event.after===null,'费用删除审计 after 无效');}else validateExpense(event.after);
    requireThat(event.before.id===event.expenseId&&(event.after===null||event.after.id===event.expenseId),'费用纠错审计编号或票额无效');
-   if(event.after)same(stableFields(event.before),stableFields(event.after),'费用纠错改变了编号、附件、票额或旧元数据');
+   if(event.action==='set-invoice-issued'){
+    requireThat(typeof event.after.invoiceIssued==='boolean'&&(event.before.invoiceIssued===true)!==event.after.invoiceIssued,'开票提醒审计没有有效变化');
+    const reminderStable=expense=>Object.fromEntries(Object.entries(expense).filter(([key])=>key!=='invoiceIssued'));
+    same(reminderStable(event.before),reminderStable(event.after),'开票提醒改变了费用事实');
+   }else if(event.after)same(stableFields(event.before),stableFields(event.after),'费用纠错改变了编号、附件、票额或旧元数据');
    requireThat(!isDeepStrictEqual(event.before,event.after),'费用纠错前后没有变化');
    const previous=latestCorrection.get(event.expenseId);
    requireThat(event.revision===(previous?previous.revision+1:1),'费用纠错修订顺序无效');
@@ -161,7 +167,7 @@ function inspectDatabase(file){
    correctionRequests.add(event.requestId);latestCorrection.set(event.expenseId,event);
   }
   for(const [id,event] of latestCorrection)if(event.after===null)requireThat(!expenses.has(id),'已删除费用仍存在');else same(event.after,expenses.get(id),'费用纠错最后修订与当前费用不一致');
-  for(const op of operations)if(['correct-expense','delete-expense'].includes(op.kind))requireThat(correctionRequests.has(op.id),'费用纠错请求缺少审计事实');
+  for(const op of operations)if(['correct-expense','delete-expense','set-invoice-issued'].includes(op.kind))requireThat(correctionRequests.has(op.id),'费用纠错请求缺少审计事实');
   const advanceEvents=state.advanceEvents===undefined?[]:state.advanceEvents;requireThat(Array.isArray(advanceEvents),'预支审计无效');
   const advanceRequests=new Set(),advanceLatest=new Map();
   function validateAdvanceSnapshot(value){requireThat(object(value)&&positive(value.amount)&&(value.details===null||object(value.details)),'预支审计快照无效');same(Object.keys(value).sort(),['amount','details'],'预支审计快照包含未知字段');if(value.details){same(Object.keys(value.details).filter(key=>key!=='attachmentId').sort(),['createdAt','date','note'],'预支审计元数据包含未知字段');requireThat(validDate(value.details.date)&&safeText(value.details.note,500)&&timestamp(value.details.createdAt)&&value.details.deleted===undefined,'预支审计元数据无效');addReference(value.details.attachmentId);}}
@@ -203,7 +209,7 @@ function inspectDatabase(file){
     const row=attachmentMap.get(id);requireThat(typeof id==='string'&&UUID.test(id)&&row&&!ids.has(id)&&!cashReferences.has(id)&&!hashes.has(row.sha256),'发票附件缺失、重复或混用了资金截图');
     ids.add(id);hashes.add(row.sha256);addReference(id);
    }
-   requireThat(invoice.identityType!=='unconfirmed'||linkedIds(invoice).length===0,'待核对发票不能关联');for(const id of linkedIds(invoice))requireThat((historical?knownExpenseIds:expenses).has(id),'发票关联费用不存在');
+   requireThat(invoice.identityType!=='unconfirmed'||linkedIds(invoice).length===0,'待核对发票不能关联');for(const id of linkedIds(invoice))requireThat(knownExpenseIds.has(id),'发票关联费用不存在');
    for(const allocation of invoice.allocations){
     requireThat(object(allocation)&&positive(allocation.expenseId)&&!allocated.has(allocation.expenseId)&&positive(allocation.amount),'发票分配引用或金额无效');
     same(Object.keys(allocation).sort(),['amount','expenseId'],'发票分配包含未知或缺失字段');allocated.add(allocation.expenseId);sum+=BigInt(allocation.amount);

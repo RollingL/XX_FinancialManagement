@@ -107,7 +107,7 @@ test('failed maintenance frees the gate but holds the lifetime lock until close'
 });
 
 test('close refuses to release a lock whose owner token changed',async t=>{
- const f=fixture(t),ledger=f.open(),ownerFile=path.join(f.root,lockName,'owner.json'),changed={token:randomUUID()};fs.writeFileSync(ownerFile,JSON.stringify(changed));
+ const f=fixture(t),ledger=f.open(),ownerFile=path.join(f.root,lockName,'owner.json'),changed={...JSON.parse(fs.readFileSync(ownerFile,'utf8')),token:randomUUID()};fs.writeFileSync(ownerFile,JSON.stringify(changed));
  await assert.rejects(ledger.close(),/所有者或内容已变化/);assert.deepEqual(JSON.parse(fs.readFileSync(ownerFile,'utf8')),changed);await assert.rejects(ledger.command({kind:'read'}),/正在关闭/);
 });
 

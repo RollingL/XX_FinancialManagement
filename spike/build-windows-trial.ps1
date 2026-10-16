@@ -38,6 +38,7 @@ foreach ($relative in $freshPaths) {
 }
 foreach ($relative in @('package-lock.json', 'spike/requirements.txt', 'spike/prepare_models.py',
     'spike/ocr-probe.spec', 'spike/prepare-windows-portable.cjs', 'spike/windows-package-check.cjs',
+    'spike/windows-launcher.cpp', 'tests/fixtures/windows-launcher-child.cpp', 'tests/windows-gui-smoke.cjs',
     'docs/WINDOWS_OFFLINE_TRIAL.md')) {
     if (!(Test-Path -LiteralPath (Join-Path $workspace $relative) -PathType Leaf)) {
         throw "Missing required build input: $relative"
@@ -119,7 +120,7 @@ try {
     # Never copy from System32, download DLLs, run vc_redist, or change the runner's installation.
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
     Assert-RegularFile $vswhere
-    $vsRoots = @(Invoke-Native -File $vswhere -Arguments @('-latest', '-products', '*', '-version', '[17.0,18.0)', '-requires', 'Microsoft.VisualStudio.Component.VC.Redist.14.Latest', '-property', 'installationPath'))
+    $vsRoots = @(Invoke-Native -File $vswhere -Arguments @('-latest', '-products', '*', '-version', '[17.0,18.0)', '-requires', 'Microsoft.VisualStudio.Component.VC.Redist.14.Latest', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-property', 'installationPath'))
     if ($vsRoots.Count -ne 1 -or ![IO.Path]::IsPathFullyQualified($vsRoots[0])) {
         throw 'Cannot resolve one installed Visual Studio 2022 official redistributable source; CRT gate failed.'
     }
@@ -163,9 +164,41 @@ try {
     $crtReport | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $reportFile -Encoding utf8
     [IO.File]::Copy($reportFile, (Join-Path $logRoot 'msvc-runtime-provenance.json'), $false)
 
+    # Compile the console-free supervisor with the already-installed official toolchain.
+    # /MT embeds the CRT; the offline computer receives no new runtime dependency.
+    $devShell = Join-Path $vsRoots[0] 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll'
+    Assert-RegularFile $devShell
+    Import-Module $devShell
+    Enter-VsDevShell -VsInstallPath $vsRoots[0] -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
+    $compiler = (Get-Command cl.exe -CommandType Application | Select-Object -First 1).Source
+    $launcherRoot = Join-Path $workspace 'out/windows-launcher'
+    [void](New-Item -ItemType Directory -Path $launcherRoot)
+    $launcher = Join-Path $launcherRoot 'Qianlai.exe'
+    $fixture = Join-Path $logRoot 'windows-launcher-child.exe'
+    foreach ($build in @(
+        @{ source='spike/windows-launcher.cpp'; output=$launcher; object=(Join-Path $launcherRoot 'launcher.obj') },
+        @{ source='tests/fixtures/windows-launcher-child.cpp'; output=$fixture; object=(Join-Path $logRoot 'launcher-child.obj') }
+    )) {
+        Invoke-Native -File $compiler -Arguments @('/nologo', '/std:c++17', '/EHsc', '/W4', '/WX', '/O2', '/MT', '/utf-8',
+            '/DUNICODE', '/D_UNICODE', "/Fo$($build.object)", "/Fe$($build.output)", (Join-Path $workspace $build.source),
+            'user32.lib', 'shell32.lib', '/link', '/SUBSYSTEM:WINDOWS', '/MACHINE:X64', '/DYNAMICBASE', '/NXCOMPAT')
+        Assert-RegularFile $build.output
+    }
+    $dumpbin = (Get-Command dumpbin.exe -CommandType Application | Select-Object -First 1).Source
+    $launcherImports = @(Invoke-Native -File $dumpbin -Arguments @('/nologo', '/dependents', $launcher))
+    $launcherImports | Set-Content -LiteralPath (Join-Path $logRoot 'launcher-imports.txt') -Encoding utf8
+    if (($launcherImports -join "`n") -match '(?i)(?:vcruntime|msvcp|ucrtbase|api-ms-win-crt)[^\s]*\.dll') {
+        throw 'Launcher unexpectedly depends on a separately installed C/C++ runtime.'
+    }
+    $env:QIANLAI_TEST_LAUNCHER = $launcher
+    $env:QIANLAI_TEST_LAUNCHER_CHILD = $fixture
+    Invoke-Native -File $node -Arguments @('--test', 'tests/windows-launcher-native.test.cjs')
+    Remove-Item Env:QIANLAI_TEST_LAUNCHER, Env:QIANLAI_TEST_LAUNCHER_CHILD
+
     Invoke-Native -File $node -Arguments @('--test', 'tests/windows-package-check.test.cjs', 'tests/electron-main.test.cjs',
         'tests/windows-portable.test.cjs', 'tests/ocr-service.test.cjs', 'tests/expense-export.test.ts', 'tests/expense-download.test.ts',
-        'tests/managed-restore.test.cjs', 'tests/record-backup.test.cjs', 'tests/record-crud.test.cjs', 'tests/expense-invoice-edit.test.cjs', 'tests/ledger-backup.test.cjs')
+        'tests/windows-runtime.test.cjs', 'tests/ledger-lock.test.cjs', 'tests/managed-restore.test.cjs',
+        'tests/record-backup.test.cjs', 'tests/record-crud.test.cjs', 'tests/invoice-reminder.test.cjs', 'tests/ledger-backup.test.cjs')
     Invoke-Native -File $venvPython -Arguments @('-B', '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_ocr_stdio.py', '-v')
     Invoke-Native -File $node -Arguments @('-e', 'require("./spike/windows-package-check.cjs").checkWindowsPackage(process.cwd(),"x64");console.log("Windows package inputs checked; target acceptance is still pending")')
     Invoke-Native -File $npm -Arguments @('run', 'package', '--', '--platform=win32', '--arch=x64')
@@ -197,6 +230,8 @@ try {
     $extracted = Join-Path $extractRoot $candidateName
     Invoke-Native -File $node -Arguments @('spike/prepare-windows-portable.cjs', '--verify-extracted', $extracted) |
         Tee-Object -FilePath (Join-Path $logRoot 'extracted-runner-probe.json')
+    Invoke-Native -File $node -Arguments @('tests/windows-gui-smoke.cjs', $extracted) |
+        Tee-Object -FilePath (Join-Path $logRoot 'extracted-runner-gui.json')
     Write-Host 'ZIP checksum, extracted inventory and Windows Server runner probes passed. Clean offline Windows 10 acceptance remains unverified.'
     Write-Host "Portable archive: $archive"
     Write-Host "Checksum: $checksumFile"

@@ -4,16 +4,27 @@ const fs=require('node:fs');
 const path=require('node:path');
 const os=require('node:os');
 const {launchScript,filesBelow,verifyInventory}=require('../spike/prepare-windows-portable.cjs');
-test('portable launchers pin managed data and backup paths, preserve data, and never request network or policy bypass',()=>{
+test('optional diagnostics leave business path creation to the runtime and preserve safe log/exit behavior',()=>{
  for(const probe of [false,true]){
   const script=launchScript('synthetic-build-id',probe);
-  assert.match(script,/XX_FINANCE_MANAGED_TRIAL=1/);assert.match(script,/trial-marker\.txt/);assert.match(script,/findstr \/x \/c:"synthetic-build-id"/);
-  for(const name of ['USER_DATA_DIR','DATA_DIR','BACKUP_DIR'])assert.match(script,new RegExp('XX_FINANCE_'+name+'='));
-  assert.match(script,/ELECTRON_RUN_AS_NODE=/);assert.ok(script.includes('if errorlevel 1 goto :failed'));
-  assert.ok(script.includes('if not exist "%~dp0backups" mkdir "%~dp0backups" || goto :failed'));
+  assert.ok(!script.includes('XX_FINANCE_USER_DATA_DIR='));assert.ok(!script.includes('XX_FINANCE_DATA_DIR='));assert.ok(!script.includes('XX_FINANCE_BACKUP_DIR='));assert.match(script,/Qianlai\.exe/);assert.match(script,/--diagnostics/);assert.ok(!script.includes('trial-marker.txt'));assert.ok(!script.includes('findstr'));assert.ok(!/\bcall\b/i.test(script));
+  // NTSTATUS crashes can be negative in cmd.exe; ERRORLEVEL 1 misses those.
+  assert.ok(script.includes('set "LAUNCH_EXIT=%errorlevel%"'));
+  assert.ok(script.includes('if not "%LAUNCH_EXIT%"=="0" goto :runtime_failed'));
+  assert.ok(script.includes('exit /b %LAUNCH_EXIT%'));
+  assert.ok(script.includes('DisableDelayedExpansion'));
+  assert.ok(script.includes('%RANDOM%-%RANDOM%'));
+  assert.ok(script.includes('ELECTRON_LOG_FILE=%LOG_DIR%\\chromium.log'));
+  assert.ok(script.includes('2>"%LOG_DIR%\\stderr.txt"'));
+  assert.ok(script.includes('ExitCode=%LAUNCH_EXIT%'));
+  assert.ok(script.includes('if not exist "%~dp0diagnostics" mkdir "%~dp0diagnostics" || goto :failed'));
+  assert.ok(!/mkdir[^\r\n]*(?:trial-data|user-data|backups)/.test(script));
   assert.ok(!/powershell|curl|wget|https?:|executionpolicy|\brmdir\b|\bdel\b|Remove-Item/i.test(script));
   assert.equal(script.includes('--probe'),probe);assert.ok(!script.replaceAll('\r\n','').includes('\n'));
  }
+});
+test('launcher build identity cannot inject batch commands',()=>{
+ for(const id of ['', 'id&echo bad', 'id\"', 'id%PATH%', 'id\r\nexit'])assert.throws(()=>launchScript(id),/build identity/);
 });
 test('extracted inventory rejects altered, unexpected, duplicated or escaping files',t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'qianlai-portable-hash-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));

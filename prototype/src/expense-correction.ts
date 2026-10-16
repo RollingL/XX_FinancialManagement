@@ -38,5 +38,5 @@ export function correctionRequest(session:CorrectionSession,draft:CorrectionDraf
  return prior??{kind:'correct-expense',requestId:createId(),id:session.expected.id,expected:structuredClone(session.expected),expectedRevision:session.expectedRevision,expense};
 }
 export function expenseCorrections(state:LedgerState,id:number){
- return (state.expenseEvents??[]).filter(event=>event.expenseId===id).sort((a,b)=>b.revision-a.revision||b.at.localeCompare(a.at)||b.requestId.localeCompare(a.requestId));
+ return (state.expenseEvents??[]).filter(event=>event.expenseId===id&&event.action!=='set-invoice-issued').sort((a,b)=>b.revision-a.revision||b.at.localeCompare(a.at)||b.requestId.localeCompare(a.requestId));
 }

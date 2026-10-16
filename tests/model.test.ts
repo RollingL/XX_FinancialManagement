@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {allocate,balance,cents,decimal,demo,money,paid,remaining,rowCents,sum,validateAllocation} from '../prototype/src/model.ts';
+import {allocate,balance,cents,decimal,money,paid,remaining,rowCents,sum,validateAllocation} from '../prototype/src/model.ts';
+import {demo} from './model-fixture.ts';
 test('金额精确到分并拒绝舍入和不安全整数',()=>{assert.equal(cents('0.01'),1);assert.equal(sum([cents('0.1'),cents('0.2')]),30);for(const x of ['0','-1','1.001','1e3','9007199254740992',''])assert.throws(()=>cents(x));assert.throws(()=>sum([Number.MAX_SAFE_INTEGER,1]));});
 test('T01/T03/T04/T05：报销不改变负余额，补预支不改进度',()=>{const s=demo(),e=s.expenses.slice(0,1);assert.equal(balance(e,s.advances),-200000);assert.equal(paid(1001,s.batches),300000);s.batches.push({id:3,date:'2026-10-09',active:true,allocations:[{expenseId:1001,amount:200000}]});assert.equal(remaining(e[0],s.batches),0);assert.equal(balance(e,s.advances),-200000);s.advances.push(400000);assert.equal(balance(e,s.advances),200000);assert.equal(remaining(e[0],s.batches),0);});
 test('T02/T08/T30：仅选中费用按日期分配，超额拒绝',()=>{const s=demo(),e=s.expenses.filter(e=>[1002,1003].includes(e.id));assert.deepEqual(allocate(150000,e,s.batches),[{expenseId:1002,amount:80000},{expenseId:1003,amount:70000}]);assert.throws(()=>allocate(200001,e,s.batches));assert.throws(()=>validateAllocation([{expenseId:1002,amount:80001}],e,s.batches));assert.throws(()=>validateAllocation([{expenseId:1002,amount:1},{expenseId:1002,amount:1}],e,s.batches));});

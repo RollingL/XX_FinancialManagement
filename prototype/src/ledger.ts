@@ -2,7 +2,7 @@ import type {Expense,Batch,Allocation} from './model.ts';
 export type AdvanceDetails={date?:string;note?:string;createdAt?:string;attachmentId?:string;deleted?:boolean};
 // Optional metadata keyed by the immutable index in advances; never another amount source.
 export type BatchEvent={requestId:string;action:'delete-batch';at:string;batchId:number;before:Batch;after:null};
-export type ExpenseEvent={requestId:string;action:'correct-expense'|'delete-expense';at:string;expenseId:number;revision:number;before:Expense;after:Expense|null};
+export type ExpenseEvent={requestId:string;action:'correct-expense'|'delete-expense'|'set-invoice-issued';at:string;expenseId:number;revision:number;before:Expense;after:Expense|null};
 export type InvoiceIdentityType='unconfirmed'|'number'|'code-number';
 export type Invoice={id:number;identityType:InvoiceIdentityType;number:string;code:string;date:string;seller:string;buyer:string;amount:number;note:string;attachmentIds:string[];allocations:Allocation[];expenseIds?:number[];revision:number;createdAt:string};
 export type InvoiceEvent={requestId:string;action:'invoice'|'invoice-identity'|'invoice-attachment'|'invoice-allocate'|'invoice-link'|'invoice-edit'|'invoice-delete'|'batch-invoice-link'|'expense-invoice-unlink';at:string;invoiceId:number;revision:number;before:Invoice|null;after:Invoice|null};
@@ -19,7 +19,7 @@ export async function ledgerCommand<T=LedgerState>(payload:unknown):Promise<T>{
  if(window.localLedger)result=await window.localLedger.command(request);
  else{
   const response=await fetch('/api/ledger',{method:'POST',headers:{'Content-Type':'application/json','X-Ledger-Request':'1'},body:JSON.stringify(request),cache:'no-store'});
-  if(!response.headers.get('content-type')?.includes('application/json'))throw Error('本地保存服务未启动，请重新启动原型');
+  if(!response.headers.get('content-type')?.includes('application/json'))throw Error('本地账本服务暂时不可用，请关闭并重新打开钱来');
   result=await response.json();if(!response.ok)throw Error(result.error||'本地读写失败');
  }
  if(input?.kind==='read')loadedGeneration=typeof result?.generation==='string'?result.generation:undefined;

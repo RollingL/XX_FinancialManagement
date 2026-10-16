@@ -25,7 +25,9 @@ function harness(options={}){
   mkdtempSync(prefix){const file=path.join(base,'probe-temp');calls.push({kind:'mkdtemp',prefix,file});return file;},
   rmSync(file,settings){calls.push({kind:'rm',file,settings});},
  };
+ const processEvents=new EventEmitter();
  const app=new EventEmitter(),paths={userData:DEFAULT_USER};app.isPackaged=!!options.packaged;
+ app.requestSingleInstanceLock=()=>{calls.push({kind:'single-instance'});return options.primary!==false;};
  app.getPath=name=>paths[name]||path.join(base,name);
  app.setPath=(name,value)=>{calls.push({kind:'setPath',name,value});paths[name]=value;};
  app.whenReady=()=>{calls.push({kind:'whenReady'});return ready.promise;};
@@ -39,6 +41,10 @@ function harness(options={}){
    this.webContents.setWindowOpenHandler=handler=>{this.openHandler=handler;};
    this.webContents.session={setPermissionRequestHandler:handler=>{this.permissionRequest=handler;},setPermissionCheckHandler:handler=>{this.permissionCheck=handler;}};windows.push(this);
   }
+  isMinimized(){return !!options.minimized;}
+  restore(){calls.push({kind:'restore'});}
+  show(){calls.push({kind:'show'});}
+  focus(){calls.push({kind:'focus'});}
   async loadFile(file){calls.push({kind:'loadFile',file});this.webContents.mainFrame.url=pathToFileURL(file).href;if(options.loadError)throw options.loadError;}
  }
  const ipcMain=new EventEmitter();ipcMain.handle=(name,handler)=>{assert.equal(handlers.has(name),false);handlers.set(name,handler);};
@@ -51,20 +57,21 @@ function harness(options={}){
  };
  function fakeRequire(name){
   if(name==='electron')return {app,BrowserWindow,ipcMain,dialog:{showOpenDialog:async(win,settings)=>{calls.push({kind:'choose',win,settings});return options.choose?options.choose():{canceled:true,filePaths:[]};},showErrorBox:(title,message)=>dialogs.push({title,message})}};
+  if(name==='./windows-runtime.cjs')return {configureWindowsPortable:()=>options.portable||null};
   if(name==='./ocr-service.cjs')return {MAX_BYTES:20*1024*1024,createOcrService:(...args)=>{calls.push({kind:'createOcrService',args});return service;}};
   if(name==='./trial-ledger.cjs')return {createLedger:(...args)=>factory('createLedger',args)};
   if(name==='./managed-ledger.cjs')return {createManagedLedger:(...args)=>factory('createManagedLedger',args)};
   if(name==='./sqlite-probe.cjs')return async directory=>{calls.push({kind:'sqliteProbe',directory});return Object.hasOwn(options,'sqliteResult')?options.sqliteResult:{status:'passed'};};
   if(name==='node:fs')return fakeFs;
-  if(name==='node:child_process')return {execFile:fakeExecFile};
+  if(name==='node:child_process')return {execFile:fakeExecFile,spawn:(file,args,settings)=>{calls.push({kind:'spawn',file,args,settings});const child=new EventEmitter();child.unref=()=>calls.push({kind:'unref'});queueMicrotask(()=>child.emit('spawn'));return child;}};
   if(['node:path','node:os','node:util','node:url'].includes(name))return require(name);
   throw Error(`Unexpected module in isolated Electron test: ${name}`);
  }
  let startupError;
- try{vm.runInNewContext(source,{require:fakeRequire,__dirname:path.dirname(mainFile),process:{argv:['synthetic-electron',mainFile,...(options.probe?['--probe']:[])],env:{...(options.env||{})},platform,resourcesPath:resources},console:{log:value=>logs.push(String(value)),error:value=>errors.push(String(value))},Buffer,ArrayBuffer,AbortController,Promise},{filename:mainFile});}catch(error){startupError=error;}
+ try{vm.runInNewContext(source,{require:fakeRequire,__dirname:path.dirname(mainFile),process:{argv:['synthetic-electron',mainFile,...(options.probe?['--probe']:[]),...(options.supervised?['--qianlai-supervised']:[])],on:processEvents.on.bind(processEvents),pid:12345,env:{...(options.env||{})},platform,resourcesPath:resources},console:{log:value=>logs.push(String(value)),error:value=>errors.push(String(value))},Buffer,ArrayBuffer,AbortController,Promise},{filename:mainFile});}catch(error){startupError=error;}
  const count=kind=>calls.filter(call=>call.kind===kind).length;
  const trusted=()=>({sender:windows[0].webContents,senderFrame:windows[0].webContents.mainFrame});
- return {app,service,ledger,calls,errors,logs,exitCodes,dialogs,handlers,windows,paths,quitEvents,startupError,count,trusted,async start(){ready.resolve();await flush();},beforeQuit(){const attempt=event();app.emit('before-quit',attempt);return attempt;}};
+ return {app,processEvents,service,ledger,calls,errors,logs,exitCodes,dialogs,handlers,windows,paths,quitEvents,startupError,count,trusted,async start(){ready.resolve();await flush();},beforeQuit(){const attempt=event();app.emit('before-quit',attempt);return attempt;}};
 }
 
 // Every runtime path below is synthetic; filesystem and ledger modules are replaced before execution.
@@ -181,7 +188,7 @@ test('a rejected pending command still settles before safe shutdown',async()=>{
 
 test('failed close keeps the closing gate and never reports a successful quit',async()=>{
  const h=harness({env:managedEnv,close:()=>Promise.reject(Error('synthetic close failure'))});await h.start();assert.equal(h.beforeQuit().prevented,1);await flush();
- assert.equal(h.count('quit'),0);assert.deepEqual(h.exitCodes,[]);assert.equal(h.dialogs.length,1);assert.match(h.dialogs[0].message,/锁已保留/);
+ assert.equal(h.count('quit'),0);assert.deepEqual(h.exitCodes,[1]);assert.equal(h.dialogs.length,1);assert.match(h.dialogs[0].message,/已保留账本/);
  assert.equal(h.beforeQuit().prevented,1);await flush();assert.equal(h.count('ledger.close'),1);assert.equal(h.count('service.stop'),1);
  await assert.rejects(h.handlers.get('ledger:command')(h.trusted(),{kind:'read'}),/正在关闭/);await assert.rejects(h.handlers.get('ocr:recognize')(h.trusted(),{id:randomUUID(),bytes:new ArrayBuffer(1)}),/正在关闭/);
 });
@@ -220,3 +227,54 @@ test('new marked Mac bundle isolates its default data and refuses an unowned exi
  const reopen=harness({packaged:true,platform:'darwin',files:[[marker,'file'],[root,'directory'],[tag,'file']],contents:[...contents,[tag,buildId+'\n']]});await reopen.start();assert.equal(reopen.count('createManagedLedger'),1);
  for(const extra of [[],[[tag,'file']]]){const rejected=harness({packaged:true,platform:'darwin',files:[[marker,'file'],[root,'directory'],...extra],contents:[...contents,[tag,'different']]});assert.deepEqual(rejected.exitCodes,[1]);assert.equal(rejected.count('whenReady'),0);assert.equal(rejected.count('createManagedLedger'),0);assert.equal(rejected.count('writeFile'),0);}
 });
+
+test('opt-in startup diagnostics distinguish ledger, UI, child exit and cleanup without logging payloads',async()=>{
+ const h=harness({env:{...managedEnv,XX_FINANCE_STARTUP_DIAGNOSTICS:'1'},platform:'win32'});await h.start();
+ const events=()=>h.errors.filter(line=>line.startsWith('[qianlai-startup] ')).map(line=>JSON.parse(line.slice('[qianlai-startup] '.length)));
+ assert.deepEqual(events().map(item=>item.stage),['main-enter','paths-ready','app-ready','ledger-opening','ledger-open','window-created','page-loaded']);
+ h.app.emit('child-process-gone',{}, {type:'GPU',reason:'crashed',exitCode:-1073741819,name:'PRIVATE CHILD NAME'});
+ h.windows[0].webContents.emit('render-process-gone',{}, {reason:'oom',exitCode:-1,payload:'PRIVATE LEDGER FACTS'});
+ assert.ok(events().some(item=>item.stage==='child-process-gone'&&item.exitCode===-1073741819));
+ assert.ok(events().some(item=>item.stage==='render-process-gone'&&item.reason==='oom'));
+ assert.equal(h.count('quit'),0);assert.equal(h.count('ledger.close'),0);assert.equal(h.count('command'),0);
+ assert.equal(h.errors.join('\n').includes('PRIVATE'),false);
+ h.beforeQuit();await flush();assert.ok(events().some(item=>item.stage==='cleanup-complete'));
+ const quiet=harness({env:managedEnv});await quiet.start();assert.deepEqual(quiet.errors,[]);
+ const probe=harness({probe:true,env:{...managedEnv,XX_FINANCE_STARTUP_DIAGNOSTICS:'1'}});await probe.start();assert.deepEqual(probe.errors,[]);assert.equal(probe.logs.length,1);
+});
+
+test('startup failure diagnostics retain the original error and do not claim completed cleanup early',async()=>{
+ const close=deferred(),h=harness({env:{...managedEnv,XX_FINANCE_STARTUP_DIAGNOSTICS:'1'},loadError:Error('synthetic load failure'),close:()=>close.promise});await h.start();
+ assert.ok(h.errors.some(line=>line.includes('synthetic load failure')));
+ assert.ok(h.errors.some(line=>line.includes('"stage":"startup-failed"')));
+ assert.equal(h.errors.some(line=>line.includes('"stage":"cleanup-complete"')),false);
+ close.resolve();await flush();assert.deepEqual(h.exitCodes,[1]);assert.ok(h.errors.some(line=>line.includes('"stage":"cleanup-complete"')));
+});
+
+
+test('secondary instance never opens a ledger and existing primary regains focus',async()=>{
+ const secondary=harness({env:managedEnv,primary:false});await secondary.start();assert.equal(secondary.count('quit'),1);assert.equal(secondary.count('whenReady'),0);assert.equal(secondary.count('createManagedLedger'),0);assert.equal(secondary.count('window'),0);
+ const primary=harness({env:managedEnv,minimized:true});await primary.start();primary.app.emit('second-instance');assert.equal(primary.count('restore'),1);assert.equal(primary.count('show'),1);assert.equal(primary.count('focus'),1);primary.beforeQuit();await flush();primary.app.emit('second-instance');assert.equal(primary.count('focus'),1);
+});
+
+test('window close and session query wait for a pending write and release once',async()=>{
+ for(const name of ['close','query-session-end']){
+  const write=deferred(),h=harness({env:managedEnv,command:()=>write.promise});await h.start();
+  const pending=h.handlers.get('ledger:command')(h.trusted(),{kind:'synthetic-write'});await flush();const attempt=event();h.windows[0].emit(name,attempt);assert.equal(attempt.prevented,1);await flush();assert.equal(h.count('ledger.close'),0);
+  write.resolve({saved:true});await pending;await flush();assert.equal(h.count('ledger.close'),1);assert.equal(h.count('quit'),1);
+  const completed=event();h.windows[0].emit(name,completed);assert.equal(completed.prevented,0);
+ }
+});
+
+test('internal portable executable hands off to the supervised launcher without opening a ledger',async()=>{
+ const portable={launcher:path.join(base,'Qianlai.exe'),allowLegacyRecovery:true};
+ const redirect=harness({env:managedEnv,portable,platform:'win32'});await redirect.start();assert.equal(redirect.count('spawn'),1);assert.equal(redirect.count('whenReady'),0);assert.equal(redirect.count('createManagedLedger'),0);assert.deepEqual(redirect.exitCodes,[0]);
+ const spawn=redirect.calls.find(c=>c.kind==='spawn');assert.equal(spawn.file,portable.launcher);assert.equal(spawn.settings.shell,false);assert.equal(spawn.settings.windowsHide,true);for(const key of Object.keys(managedEnv))assert.equal(spawn.settings.env[key],undefined);
+ const supervised=harness({env:managedEnv,portable,platform:'win32',supervised:true});await supervised.start();assert.equal(supervised.count('spawn'),0);assert.equal(supervised.calls.find(c=>c.kind==='createManagedLedger').args[2].allowLegacyRecovery,true);
+});
+
+test('fatal runtime errors clean up and exit nonzero with a visible explanation',async()=>{
+ const h=harness({env:managedEnv});await h.start();h.processEvents.emit('uncaughtException',Error('private ledger details'));await flush();assert.equal(h.count('ledger.close'),1);assert.deepEqual(h.exitCodes,[1]);assert.equal(h.dialogs.length,1);assert.equal(h.dialogs[0].message.includes('private'),false);
+});
+
+test('idle Windows session end starts cleanup without vetoing shutdown',async()=>{const h=harness({env:managedEnv});await h.start();const attempt=event();h.windows[0].emit('query-session-end',attempt);assert.equal(attempt.prevented,0);await flush();assert.equal(h.count('ledger.close'),1);assert.equal(h.count('quit'),1);});
