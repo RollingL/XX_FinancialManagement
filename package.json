@@ -8,6 +8,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "test": "node --test tests/*.test.ts tests/*.test.cjs",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" tests/*.test.ts tests/*.test.cjs",
     "start": "npm run build && electron-forge start",
     "probe:electron": "electron src/main/main.cjs --probe",
     "package": "npm run build && electron-forge package",
