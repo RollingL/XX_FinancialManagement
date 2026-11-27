@@ -666,6 +666,61 @@ test('only the native folder chooser can name a folder outside 备份, and cance
   await flush();
 });
 
+test('only the native folder chooser can name where a USB backup goes', async () => {
+  const generation = 'synthetic-generation',
+    requestId = randomUUID(),
+    usb = path.join(base, '合成U盘');
+  const h = harness({ choose: async () => ({ canceled: false, filePaths: [usb] }) });
+  await h.start();
+  const handler = h.handlers.get('ledger:command');
+  await handler(h.trusted(), { kind: 'backup-elsewhere', generation, requestId });
+  const choose = h.calls.find((c) => c.kind === 'choose');
+  assert.deepEqual(plain(choose.settings.properties), ['openDirectory', 'createDirectory']);
+  assert.deepEqual(plain(h.calls.find((c) => c.kind === 'command').payload), {
+    kind: 'create-backup',
+    requestId,
+    generation,
+    destination: usb,
+  });
+  for (const payload of [
+    { kind: 'backup-elsewhere', generation, requestId, destination: '/renderer/path' },
+    { kind: 'backup-elsewhere', generation },
+    { kind: 'create-backup', generation, requestId, destination: '/renderer/path' },
+  ])
+    await assert.rejects(handler(h.trusted(), payload), /备份请求无效/);
+  assert.equal(h.count('choose'), 1);
+  assert.equal(h.count('command'), 1);
+  // An ordinary backup into 备份 needs no chooser.
+  await handler(h.trusted(), { kind: 'create-backup', generation, requestId: randomUUID() });
+  assert.equal(h.count('command'), 2);
+
+  const canceled = harness();
+  await canceled.start();
+  assert.equal(
+    await canceled.handlers.get('ledger:command')(canceled.trusted(), {
+      kind: 'backup-elsewhere',
+      generation,
+      requestId,
+    }),
+    null,
+  );
+  assert.equal(canceled.count('command'), 0);
+  const choosing = deferred(),
+    closing = harness({ choose: () => choosing.promise });
+  await closing.start();
+  const pending = closing.handlers.get('ledger:command')(closing.trusted(), {
+    kind: 'backup-elsewhere',
+    generation,
+    requestId,
+  });
+  await flush();
+  closing.beforeQuit();
+  choosing.resolve({ canceled: false, filePaths: [usb] });
+  await assert.rejects(pending, /正在关闭/);
+  assert.equal(closing.count('command'), 0);
+  await flush();
+});
+
 test('the window can open only the 备份 folder or the whole 钱来 folder in the file manager', async () => {
   const h = harness({ missing: [BACKUP] });
   await h.start();

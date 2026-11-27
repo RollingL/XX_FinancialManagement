@@ -40,7 +40,8 @@ type RestorePlan = {
   missingAttachmentCount: number;
   upgradedFrom: number | null;
 };
-type Activity = 'info' | 'backup' | 'reset' | 'restore' | 'folder' | null;
+type Activity = 'info' | 'backup' | 'external' | 'reset' | 'restore' | 'folder' | null;
+type ExternalBackup = BackupItem & { external: true; sameDisk: boolean };
 const RESET_CONFIRMATION = '清空当前账本';
 const RESTORE_CONFIRMATION = '恢复备份';
 const SHOWN_BACKUPS = 8;
@@ -83,7 +84,8 @@ export default function BackupPage({
   const [info, setInfo] = useState<MaintenanceInfo | null>(null),
     [busy, setBusy] = useState<Activity>('info'),
     [error, setError] = useState(''),
-    [done, setDone] = useState('');
+    [done, setDone] = useState(''),
+    [external, setExternal] = useState<ExternalBackup | null>(null);
   const [showAll, setShowAll] = useState(false),
     [sourcePath, setSourcePath] = useState('');
   const [plan, setPlan] = useState<RestorePlan | null>(null),
@@ -93,6 +95,7 @@ export default function BackupPage({
   const lock = useRef(false),
     mounted = useRef(true),
     backupRequest = useRef<string | null>(null),
+    externalRequest = useRef<string | null>(null),
     restoreRequest = useRef<string | null>(null),
     resetRequest = useRef<string | null>(null),
     planRef = useRef<HTMLFormElement>(null),
@@ -163,6 +166,29 @@ export default function BackupPage({
         );
         await readInfo();
       }
+    } catch (e) {
+      if (mounted.current) setError(message(e));
+    } finally {
+      finish();
+    }
+  }
+  // The main process asks where (a USB drive, for example) with the system's folder chooser.
+  async function backupElsewhere() {
+    if (!info || !begin('external')) return;
+    setError('');
+    setExternal(null);
+    const requestId = (externalRequest.current ??= crypto.randomUUID());
+    try {
+      const result = await ledgerCommand<ExternalBackup | null>({
+        kind: 'backup-elsewhere',
+        requestId,
+        generation: info.generation,
+      });
+      if (result === null) return;
+      if (!result || typeof result.directory !== 'string')
+        throw Error('没有收到备份结果，请重试。');
+      externalRequest.current = null;
+      if (mounted.current) setExternal(result);
     } catch (e) {
       if (mounted.current) setError(message(e));
     } finally {
@@ -331,6 +357,39 @@ export default function BackupPage({
           </div>
         )}
       </section>
+
+      {desktop && (
+        <section className="backup-card" aria-labelledby="backup-usb-title">
+          <div className="backup-card-heading">
+            <h2 id="backup-usb-title">备份到 U 盘</h2>
+            <span className="backup-badge">防止硬盘损坏</span>
+          </div>
+          <p>
+            账本和上面的自动备份都在这台电脑的同一块硬盘上，硬盘坏了或电脑丢了会一起丢失。建议每周插上
+            U 盘备份一次。
+          </p>
+          <div className="backup-actions">
+            <button type="button" disabled={!!busy || !info} onClick={() => void backupElsewhere()}>
+              {busy === 'external' ? '正在备份…' : '备份到 U 盘…'}
+            </button>
+          </div>
+          {external && (
+            <div className="backup-help backup-where" role="status">
+              <p className="backup-result">已备份到：</p>
+              <p className="backup-location">{external.directory}</p>
+              {external.missingAttachmentCount > 0 && (
+                <p>有 {external.missingAttachmentCount} 张截图找不到或已损坏，没能备份。</p>
+              )}
+              <p>以后要用它恢复：在本页点“从其他文件夹恢复或导入…”，选这个文件夹。</p>
+              {external.sameDisk && (
+                <p className="error">
+                  这个位置和钱来在同一块硬盘上，硬盘坏了时这份备份也会一起丢失，建议改用 U 盘。
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="backup-card" aria-labelledby="backup-restore-title">
         <div className="backup-card-heading">

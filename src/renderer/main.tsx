@@ -19,7 +19,7 @@ import { expenseFilterError, expenseStatus, filterExpenses, expenseCsv } from '.
 import type { ExpenseFilters } from './expense-export.ts';
 import { downloadExpenseCsv } from './expense-download.ts';
 import ScreenshotPicker, { SavedScreenshot } from './Screenshot.tsx';
-import { ledgerCommand, imagePayload } from './ledger.ts';
+import { ledgerCommand, imagePayload, onLedgerReloaded } from './ledger.ts';
 import AdvanceEditor from './AdvanceEditor.tsx';
 import type { LedgerState } from './ledger.ts';
 import { localDate as today, localDateLabel } from './local-date.ts';
@@ -167,6 +167,8 @@ function App() {
     };
   }, []);
   const requestId = useRef(crypto.randomUUID());
+  // A save refused as out of date reads the ledger again; show what it read.
+  useEffect(() => onLedgerReloaded(setState), []);
   useEffect(() => {
     ledgerCommand({ kind: 'read' })
       .then((value) => {
@@ -385,7 +387,7 @@ function App() {
     if (saveLock.current || !correction || !correctionForm) return;
     try {
       const existing = expenses.find((expense) => expense.id === correction.expected.id);
-      if (!existing) throw new Error('费用不存在，请刷新后重新核对');
+      if (!existing) throw new Error('找不到这笔费用，可能已被删除，请返回列表重新打开');
       const restriction = correctionRestriction(existing, state);
       if (restriction) throw new Error(restriction);
       const request = correctionRequest(correction, correctionForm, correctionAttempts.current);

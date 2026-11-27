@@ -295,15 +295,38 @@ if (primary)
             source: selected.filePaths[0],
           });
         }
+        if (payload?.kind === 'backup-elsewhere') {
+          if (
+            Object.keys(payload).sort().join(',') !== 'generation,kind,requestId' ||
+            typeof payload.generation !== 'string'
+          )
+            throw invalid('备份请求无效');
+          const selected = await dialog.showOpenDialog(win, {
+            title: '选择 U 盘或其他位置，把账本备份到那里',
+            buttonLabel: '备份到这里',
+            properties: ['openDirectory', 'createDirectory'],
+          });
+          if (selected.canceled) return null;
+          if (closing || selected.filePaths.length !== 1)
+            throw invalid('备份位置选择已取消或程序正在关闭');
+          return ledger.command({
+            kind: 'create-backup',
+            requestId: payload.requestId,
+            generation: payload.generation,
+            destination: selected.filePaths[0],
+          });
+        }
         if (payload?.kind === 'show-folder') {
           if (Object.keys(payload).sort().join(',') !== 'kind,which') throw invalid('文件夹无效');
           const problem = await shell.openPath(folderFor(payload.which));
           if (problem) throw invalid('没能打开文件夹：' + problem);
           return { opened: true };
         }
-        // Only the native chooser above may name a folder outside 备份/.
+        // Only the native choosers above may name a folder outside 备份/.
         if (payload?.kind === 'prepare-restore' && Object.hasOwn(payload, 'source'))
           throw invalid('恢复预览请求无效');
+        if (payload?.kind === 'create-backup' && Object.hasOwn(payload, 'destination'))
+          throw invalid('备份请求无效');
         return ledger.command(payload);
       }
       ipcMain.handle('ledger:command', async (event, payload) => {

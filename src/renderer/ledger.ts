@@ -53,7 +53,48 @@ declare global {
 // Maintenance-info must never refresh this token.
 let loadedGeneration: string | undefined;
 const WITHOUT_GENERATION = ['read', 'maintenance-info', 'attachment', 'show-folder'];
+
+// The desktop bridge wraps every refusal as “Error invoking remote method …: Error: 原因”.
+// Only the reason is meant for the user.
+const BRIDGE_PREFIX = /^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/;
+export function plainMessage(error: unknown) {
+  const text = error instanceof Error ? error.message : String(error ?? '');
+  return text.replace(BRIDGE_PREFIX, '') || '本地读写失败，请重试';
+}
+
+// A save refused because this window shows out-of-date records ends with “请刷新后…”.
+// The desktop window has no refresh button, so the ledger is read again right away,
+// the screens are told (onLedgerReloaded), and the message says what happened.
+const ASKS_FOR_REFRESH = /，请刷新(?:页面)?后[^，。]*$/;
+const reloadListeners = new Set<(state: LedgerState) => void>();
+export function onLedgerReloaded(listener: (state: LedgerState) => void) {
+  reloadListeners.add(listener);
+  return () => {
+    reloadListeners.delete(listener);
+  };
+}
+async function explainRefusal(error: unknown): Promise<Error> {
+  const text = plainMessage(error);
+  if (!ASKS_FOR_REFRESH.test(text)) return Error(text);
+  try {
+    const state = await ledgerCommand({ kind: 'read' });
+    for (const listener of reloadListeners) listener(state);
+  } catch {
+    return Error(text);
+  }
+  return Error(text.replace(ASKS_FOR_REFRESH, '。已重新读取最新账本，请核对后再保存。'));
+}
+
 export async function ledgerCommand<T = LedgerState>(payload: unknown): Promise<T> {
+  try {
+    return await send<T>(payload);
+  } catch (error) {
+    throw (payload as { kind?: unknown })?.kind === 'read'
+      ? Error(plainMessage(error))
+      : await explainRefusal(error);
+  }
+}
+async function send<T>(payload: unknown): Promise<T> {
   const input = payload as Record<string, unknown>;
   const request =
     input &&

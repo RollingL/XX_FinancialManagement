@@ -410,6 +410,72 @@ test('a backup copied somewhere else, for example a USB drive, can be restored w
   );
 });
 
+test('a backup to a USB drive is complete on its own and restores on another computer', async (t) => {
+  const f = serviceFixture(t);
+  await f.seed({ seed: 4 });
+  const state = await f.read();
+  const usb = home(t, 'qianlai-usb-');
+  const input = {
+    kind: 'create-backup',
+    requestId: randomUUID(),
+    generation: state.generation,
+    destination: usb,
+  };
+  const before = f.backupFolders();
+  const made = await f.command(input);
+  assert.equal(made.external, true);
+  assert.equal(made.kindLabel, '手动备份');
+  assert.equal(made.missingAttachmentCount, 0);
+  assert.equal(made.directory, path.join(usb, '钱来备份', made.name));
+  assert.equal(typeof made.sameDisk, 'boolean');
+  assert.deepEqual(await f.command(input), made, 'a repeated request backs up once');
+  assert.deepEqual(fs.readdirSync(usb), ['钱来备份']);
+  assert.deepEqual(fs.readdirSync(path.join(usb, '钱来备份')).sort(), [made.name, '截图库'].sort());
+  assert.deepEqual(f.backupFolders(), before, 'nothing is added to the local 备份 folder');
+
+  // Choosing the 钱来备份 folder itself adds the next backup next to the first one.
+  f.time.later(60);
+  const second = await f.command({
+    ...input,
+    requestId: randomUUID(),
+    destination: path.join(usb, '钱来备份'),
+  });
+  assert.equal(path.dirname(second.directory), path.join(usb, '钱来备份'));
+  assert.equal(
+    fs.readdirSync(path.join(usb, '钱来备份', '截图库')).length,
+    2,
+    'shared screenshots',
+  );
+
+  // A new computer restores it with all screenshots.
+  const elsewhere = serviceFixture(t);
+  const { preview } = await restore(elsewhere, { source: made.directory });
+  assert.equal(preview.missingAttachmentCount, 0);
+  const restored = await elsewhere.read();
+  assert.deepEqual(withoutGeneration(restored), withoutGeneration(state));
+  const shot = await elsewhere.command({
+    kind: 'attachment',
+    id: restored.expenses[0].attachmentId,
+  });
+  assert.equal(shot.mime, 'image/png');
+
+  // The 钱来 folder itself, a missing folder, a file or a relative path are refused.
+  for (const [destination, message] of [
+    [f.dir, /钱来文件夹以外/],
+    [f.layout.backupDir, /钱来文件夹以外/],
+    [path.join(usb, '已经拔出的U盘'), /找不到选择的文件夹/],
+    [path.join(made.directory, 'backup.json'), /请选择一个文件夹/],
+    ['相对/路径', /请选择要备份到的文件夹/],
+    [42, /请选择要备份到的文件夹/],
+  ])
+    await assert.rejects(
+      f.command({ ...input, requestId: randomUUID(), destination }),
+      message,
+      String(destination),
+    );
+  assert.deepEqual(f.backupFolders(), before);
+});
+
 test('a source open in another window, from a newer version, damaged, or old test data is refused', async (t) => {
   const other = serviceFixture(t, { dir: home(t, 'qianlai-other-') });
   await other.seed();

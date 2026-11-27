@@ -127,6 +127,7 @@ async function fixture(
       }),
     },
     './ledger.ts': {
+      onLedgerReloaded: () => () => {},
       ledgerCommand: async (request: any) => {
         const copy = structuredClone(request);
         if (copy.kind !== 'batch') return send(copy);

@@ -12,6 +12,8 @@ const backups = require('./ledger-backup.cjs');
 const RESET_CONFIRMATION = '清空当前账本';
 const RESTORE_CONFIRMATION = '恢复备份';
 const KEEP_AUTOMATIC_BACKUPS = 30;
+// A backup to a USB drive or another folder goes into a folder with this name there.
+const EXTERNAL_FOLDER = '钱来备份';
 const MAX_PLANS = 4;
 const REQUEST_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -21,6 +23,11 @@ const conflict = (message) => {
 const invalid = (message) => {
   throw Object.assign(Error(message), { status: 422 });
 };
+// True when `folder` is `parent` itself or somewhere inside it.
+function isInside(folder, parent) {
+  const relative = path.relative(parent, folder);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
 const digestOf = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 function publicBackup(item) {
@@ -117,13 +124,49 @@ function openLedgerService(
 
   function createManualBackup(input) {
     assertRequest(input);
-    if (Object.keys(input).some((key) => !['kind', 'requestId', 'generation'].includes(key)))
-      invalid('备份请求无效');
+    const allowed = ['kind', 'requestId', 'generation', 'destination'];
+    if (Object.keys(input).some((key) => !allowed.includes(key))) invalid('备份请求无效');
     assertGeneration(input);
     if (backupResults.has(input.requestId)) return backupResults.get(input.requestId);
-    const result = publicBackup(backup('manual'));
+    const result = Object.hasOwn(input, 'destination')
+      ? externalBackup(input.destination)
+      : publicBackup(backup('manual'));
     backupResults.set(input.requestId, result);
     return result;
+  }
+
+  // A complete backup in another place (a USB drive, for example), so that losing this
+  // computer's disk does not lose the backups too. It has the same layout as 备份:
+  // <chosen>/钱来备份/<time>_手动备份 plus a shared 截图库, so it can be restored with
+  // “从其他文件夹恢复或导入”. Only the main process's folder chooser names the place.
+  function externalBackup(destination) {
+    if (typeof destination !== 'string' || !path.isAbsolute(destination))
+      invalid('请选择要备份到的文件夹');
+    const chosen = path.resolve(destination);
+    let chosenStat;
+    try {
+      chosenStat = fs.statSync(chosen);
+    } catch {
+      invalid('找不到选择的文件夹，U 盘是否已经拔出？');
+    }
+    if (!chosenStat.isDirectory()) invalid('请选择一个文件夹');
+    if (isInside(chosen, layout.home)) invalid('请选择钱来文件夹以外的位置，例如 U 盘');
+    const target =
+      path.basename(chosen) === EXTERNAL_FOLDER ? chosen : path.join(chosen, EXTERNAL_FOLDER);
+    schema.plainDirectory(target, true);
+    backups.removeStaleTemporary(target);
+    const made = backups.createBackup({
+      db,
+      attachmentsDir,
+      backupDir: target,
+      kind: 'manual',
+      now,
+    });
+    return {
+      ...publicBackup(made),
+      external: true,
+      sameDisk: chosenStat.dev === fs.statSync(layout.home).dev,
+    };
   }
 
   // ---- Restore and import ----
@@ -336,4 +379,5 @@ module.exports = {
   RESET_CONFIRMATION,
   RESTORE_CONFIRMATION,
   KEEP_AUTOMATIC_BACKUPS,
+  EXTERNAL_FOLDER,
 };
