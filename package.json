@@ -11,7 +11,10 @@
     "start": "npm run build && electron-forge start",
     "probe:electron": "electron spike/main.cjs --probe",
     "package": "npm run build && electron-forge package",
-    "make": "npm run build && electron-forge make"
+    "make": "npm run build && electron-forge make",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run format:check && npm run build && npm test"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
@@ -19,16 +22,17 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "electron": "44.7.0",
     "@electron-forge/cli": "8.0.1",
     "@electron-forge/maker-squirrel": "8.0.1",
     "@electron-forge/maker-zip": "8.0.1",
     "@electron-forge/plugin-auto-unpack-natives": "8.0.1",
-    "vite": "8.3.4",
-    "typescript": "7.0.2",
+    "@types/node": "26.6.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "@types/node": "26.6.5"
+    "electron": "44.7.0",
+    "prettier": "3.10.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.4"
   },
   "type": "module"
 }

@@ -14,6 +14,10 @@
 !/.github/
 !/.github/workflows/
 !/.github/workflows/windows-offline-trial.yml
+!/.github/workflows/ci.yml
+!/.nvmrc
+!/.prettierrc.json
+!/.prettierignore
 !/vite.config.ts
 !/tsconfig.json
 !/docs/

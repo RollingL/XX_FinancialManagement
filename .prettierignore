@@ -1,0 +1,11 @@
+# Generated, vendored or binary content
+node_modules/
+dist/
+out/
+coverage/
+evidence/
+.local-data/
+package-lock.json
+
+# Documentation is hand-formatted Chinese prose; tables and line breaks are kept as written.
+*.md
