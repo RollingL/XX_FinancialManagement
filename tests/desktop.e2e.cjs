@@ -5,12 +5,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { _electron } = require('playwright-core');
 const electronPath = require('electron');
+const { cleanup, temporaryFolder } = require('./test-cleanup.cjs');
 
 const root = path.join(__dirname, '..');
 const fixture = path.join(__dirname, 'fixtures', 'synthetic-payment.png');
@@ -24,11 +24,6 @@ function environment(home) {
     if (name.startsWith('QIANLAI_') && name !== 'QIANLAI_HOME') delete env[name];
   return env;
 }
-function temporaryFolder(t, prefix) {
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
-  return folder;
-}
 async function launch(t, home) {
   const app = await _electron.launch({
     executablePath: electronPath,
@@ -36,7 +31,7 @@ async function launch(t, home) {
     cwd: root,
     env: environment(home),
   });
-  t.after(() => app.close().catch(() => {}));
+  cleanup(t, () => app.close().catch(() => {}));
   const page = await app.firstWindow();
   await page.setViewportSize({ width: 1366, height: 768 });
   await page.getByRole('navigation', { name: '主导航' }).waitFor(STEP);

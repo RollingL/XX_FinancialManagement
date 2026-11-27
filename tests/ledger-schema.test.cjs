@@ -3,7 +3,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { spawn } = require('node:child_process');
@@ -11,12 +10,9 @@ const Database = require('better-sqlite3');
 const { openLedger } = require('../src/main/ledger.cjs');
 const schema = require('../src/main/ledger-schema.cjs');
 const { ledgerFixture } = require('./ledger-fixture.cjs');
+const { cleanup, temporaryFolder } = require('./test-cleanup.cjs');
 
-function folder(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-schema-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  return dir;
-}
+const folder = (t) => temporaryFolder(t, 'qianlai-schema-');
 const hashOf = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const expense = (amount = 100) => ({
   kind: 'expense',
@@ -47,7 +43,7 @@ test('a new ledger is created with its marker, version and identity, and keeps t
   assert.equal(ledger.generation(), identity.generation);
   ledger.close();
   ledger = openLedger(dir);
-  t.after(() => ledger.close());
+  cleanup(t, () => ledger.close());
   assert.equal(ledger.created, false);
   assert.equal(ledger.upgradedFrom, null);
   assert.deepEqual(meta(ledger.database), identity);
@@ -58,7 +54,7 @@ test('a ledger in use cannot be opened a second time; closing releases it', asyn
   await f.ledger.command(expense());
   assert.throws(() => openLedger(f.dir), { code: 'LEDGER_IN_USE', message: /另一个钱来窗口/ });
   const outside = new Database(path.join(f.dir, 'qianlai.sqlite'), { timeout: 100 });
-  t.after(() => outside.close());
+  cleanup(t, () => outside.close());
   assert.throws(() => outside.prepare('SELECT COUNT(*) FROM expenses').get(), {
     code: 'SQLITE_BUSY',
   });
@@ -79,7 +75,7 @@ test('when the program is killed, the operating system releases the lock and sav
   const child = spawn(process.execPath, ['-e', script, dir, randomUUID()], {
     stdio: ['ignore', 'pipe', 'inherit'],
   });
-  t.after(() => child.kill('SIGKILL'));
+  cleanup(t, () => child.kill('SIGKILL'));
   await new Promise((resolve, reject) => {
     child.stdout.on('data', (chunk) => String(chunk).includes('ready') && resolve());
     child.on('exit', (code) => reject(Error(`child exited early with ${code}`)));
@@ -89,7 +85,7 @@ test('when the program is killed, the operating system releases the lock and sav
   child.kill('SIGKILL');
   await exited;
   const ledger = openLedger(dir);
-  t.after(() => ledger.close());
+  cleanup(t, () => ledger.close());
   assert.deepEqual((await ledger.command({ kind: 'read' })).advances, [12345]);
 });
 
@@ -147,7 +143,7 @@ test('the data folder and the screenshot folder must be plain folders, not short
 function versionOneDatabase(t) {
   const file = path.join(folder(t), 'qianlai.sqlite'),
     db = new Database(file);
-  t.after(() => db.open && db.close());
+  cleanup(t, () => db.open && db.close());
   schema.prepareDatabase(db, {
     create: true,
     identity: () => ({

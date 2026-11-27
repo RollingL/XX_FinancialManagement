@@ -4,13 +4,15 @@
 
 ## 最近一次已验证的候选包
 
-2026-10-16 的候选包对应源码 `21d14a715646e784eb5b6bef62e881000914b75b`。GitHub Windows Server 2022 x64 的 [run 38852211112](https://github.com/RollingL/XX_FinancialManagement/actions/runs/38852211112) 成功。原生启动器 5 项、定向 Node 110 项、Python 通信 4 项通过。最终 ZIP 在新的中文空格路径解压后，随包 SQLite／OCR 探针通过，GUI 经诊断 CMD 与 `Qianlai.exe` 正常启动、关闭并确认进程清理；合成空账本与旧目录标识保留。下载后核对了 ZIP SHA-256 和 272 个文件的大小及哈希。文件名、校验值及错误修复过程见 [稳定性交付记录](history/WINDOWS_STABILITY_2026-10-16.md)。
+2026-11-27 的候选包对应源码 `3791d0b6c01e66b0305cdf4d98b64764154d5db8`（移除 OCR、数据层重做和界面改进之后）。GitHub Windows Server 2022 x64 的 [run 46059203104](https://github.com/RollingL/XX_FinancialManagement/actions/runs/46059203104) 成功：原生启动器 5 项、定向 Node 110 项通过；打包后随包 SQLite 自检通过；ZIP 在新的中文空格路径解压后核对清单，`Qianlai.exe` 真实启动界面、正常关闭并确认进程清理，加一笔合成费用后重新打开账目不变并产生一份自动备份，把整个文件夹复制到别处打开账目也一致。
 
-这是该提交在 Windows Server runner 的构建与运行证据。产物保留期已于 2026-10-23 结束，**目前没有可下载的 Windows 包**，需要重新构建。
+- 文件：`Qianlai-Windows10-x64-3791d0b6c01e.zip`（89 个文件），SHA-256 `4d29d0bb1050392ec9e577d2f6bcbb33694327a93a5af6c7dacc981bc94ee52d`。Claude 下载后核对了这个校验值，并确认包里有 SmartScreen 和 U 盘备份的说明、没有账本或备份文件。
+- GitHub 上的产物 2026-12-04 过期；项目文件夹里另存了一份。
+- 同一天前两次构建（run 46056239323、46058599811）分别发现并修好了两个只在 Windows 上出现的问题：测试收尾时先删临时文件夹后关账本；SQLite 自检删不掉 Electron 自己开着的临时文件。
 
-2026-11-27 起软件已移除 OCR，打包脚本也随之简化（不再需要 Python、模型和 VC 运行库），目录改为 `scripts/windows/`，Electron 程序改名为 `app/qianlai-app.exe`。这些改动**还没有在 Windows 上构建过**，下一次构建要特别留意打包脚本本身是否正常。
+这是 Windows Server runner 上的构建与运行证据，**不等于 Windows 10 真机验收**。
 
-同日数据层也已重做：账本和备份改放在解压文件夹里的 `数据`、`备份`（程序缓存和日志在 `运行记录`），不再有 `trial-data`、`backups`、写入锁目录和恢复指针；构建的界面检查新增“把整个文件夹复制到别处后还能打开、账目不变”。这些改动同样**还没有在 Windows 上构建过**。
+更早的 2026-10-16 候选包（源码 `21d14a7`，带 OCR，[run 38852211112](https://github.com/RollingL/XX_FinancialManagement/actions/runs/38852211112)）的记录见 [稳定性交付记录](history/WINDOWS_STABILITY_2026-10-16.md)。
 
 2026-10-13，用户确认 Mac 九项实测通过，并决定 Windows 同阶段视为验收通过。该阶段决定对应 [当日冻结基线](history/ACCEPTED_BASELINE_2026-10-13.md)。当时未用包含九项修订的包重新做 Windows 真机实测，已有用户反馈针对更早的候选包。
 

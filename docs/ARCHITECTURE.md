@@ -158,4 +158,4 @@ tests/        自动测试和合成测试素材（tests/fixtures/）
 
 `tests/desktop.e2e.cjs` 是**真实桌面版**的界面测试：用 Playwright 启动 Electron，在临时文件夹里像用户一样点界面（记账、报销、开票、备份、U 盘备份、恢复、导入、清空、搬文件夹），每个 PR 都会在 Linux 上自动跑。改了界面文字或按钮名字时，要同时改这里。
 
-测试共用的临时账本工具在 `tests/ledger-fixture.cjs`：`ledgerFixture` 建一个临时账本（因为账本被独占锁住，测试通过 `f.db` 用账本自己的连接查看和修改数据），`seedVariedLedger` 填入各种类型的合成记录。
+测试共用的临时账本工具在 `tests/ledger-fixture.cjs`：`ledgerFixture` 建一个临时账本（因为账本被独占锁住，测试通过 `f.db` 用账本自己的连接查看和修改数据），`seedVariedLedger` 填入各种类型的合成记录。临时文件夹和测试收尾用 `tests/test-cleanup.cjs`：`temporaryFolder` 建临时文件夹，`cleanup` 登记的收尾步骤按“后登记先执行”的顺序运行，保证先关账本、再删文件夹。Windows 不能删除还开着的文件；为了在 Linux 上也能发现这类问题，删文件夹前会检查本进程有没有文件还开着。

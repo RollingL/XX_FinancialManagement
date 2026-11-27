@@ -3,13 +3,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const Database = require('better-sqlite3');
 const { openLedgerService } = require('../src/main/ledger-service.cjs');
 const schema = require('../src/main/ledger-schema.cjs');
 const { funds, seedVariedLedger } = require('./ledger-fixture.cjs');
+const { cleanup, temporaryFolder } = require('./test-cleanup.cjs');
 
 // A clock the tests move forward by whole days.
 function clock(day = 20) {
@@ -24,14 +24,10 @@ function clock(day = 20) {
     },
   };
 }
-function home(t, prefix = 'qianlai-home-') {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  return dir;
-}
+const home = (t, prefix = 'qianlai-home-') => temporaryFolder(t, prefix);
 function serviceFixture(t, { dir = home(t), time = clock(), keepAutomaticBackups } = {}) {
   let service = openLedgerService(dir, { now: time.now, keepAutomaticBackups });
-  t.after(() => service.close());
+  cleanup(t, () => service.close());
   const f = {
     dir,
     time,
@@ -263,7 +259,7 @@ test('restoring a backup brings back exactly what it holds, after a safety backu
   const safety = (await f.info()).backups.find((item) => item.name === result.backup);
   assert.equal(safety.kind, 'restore');
   const safetyDb = new Database(path.join(safety.directory, 'qianlai.sqlite'), { readonly: true });
-  t.after(() => safetyDb.close());
+  cleanup(t, () => safetyDb.close());
   assert.deepEqual(
     safetyDb.prepare('SELECT * FROM expenses ORDER BY id').all(),
     currentRows.expenses,
@@ -581,7 +577,7 @@ test('clearing makes a safety backup, empties records and screenshots, and a rep
 });
 function openReadonly(t, directory) {
   const db = new Database(path.join(directory, 'qianlai.sqlite'), { readonly: true });
-  t.after(() => db.close());
+  cleanup(t, () => db.close());
   return db;
 }
 

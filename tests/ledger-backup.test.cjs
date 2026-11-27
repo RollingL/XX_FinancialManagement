@@ -3,7 +3,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const Database = require('better-sqlite3');
@@ -11,6 +10,7 @@ const backups = require('../src/main/ledger-backup.cjs');
 const schema = require('../src/main/ledger-schema.cjs');
 const { openLedger } = require('../src/main/ledger.cjs');
 const { ledgerFixture, seedVariedLedger } = require('./ledger-fixture.cjs');
+const { cleanup, removeFolder, temporaryFolder } = require('./test-cleanup.cjs');
 const { syntheticPng } = require('./synthetic-image.cjs');
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -19,7 +19,7 @@ const at = (day, hour = 9, minute = 30, second = 12) =>
 function setup(t) {
   const f = ledgerFixture(t, 'qianlai-backup-'),
     backupDir = path.join(f.dir, '..', path.basename(f.dir) + '-备份');
-  t.after(() => fs.rmSync(backupDir, { recursive: true, force: true }));
+  cleanup(t, () => removeFolder(backupDir));
   const backup = (kind = 'manual', when = at(27)) =>
     backups.createBackup({
       db: f.db,
@@ -45,8 +45,7 @@ function rowsOf(file) {
 }
 const storeFiles = (backupDir) => fs.readdirSync(path.join(backupDir, backups.STORE)).sort();
 function stage(t, folder) {
-  const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-stage-'));
-  t.after(() => fs.rmSync(stagingDir, { recursive: true, force: true }));
+  const stagingDir = temporaryFolder(t, 'qianlai-stage-');
   return backups.stageSource(backups.locateSource(folder), stagingDir);
 }
 
@@ -192,8 +191,7 @@ test('a ledger can be found in a backup, a 数据 folder or a whole 钱来 folde
   assert.equal(backups.locateSource(directory).type, 'backup');
   assert.equal(backups.locateSource(f.dir).type, 'data');
   // A whole 钱来 folder: <home>/数据/qianlai.sqlite
-  const whole = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-home-'));
-  t.after(() => fs.rmSync(whole, { recursive: true, force: true }));
+  const whole = temporaryFolder(t, 'qianlai-home-');
   fs.mkdirSync(path.join(whole, '数据'));
   fs.copyFileSync(
     path.join(directory, 'qianlai.sqlite'),
@@ -208,8 +206,7 @@ test('a ledger can be found in a backup, a 数据 folder or a whole 钱来 folde
     [(dir) => fs.writeFileSync(path.join(dir, 'trial.sqlite'), ''), /早期测试版的数据/],
     [(dir) => fs.writeFileSync(path.join(dir, 'backup.json'), '{}'), /说明文件已损坏/],
   ]) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-source-'));
-    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const dir = temporaryFolder(t, 'qianlai-source-');
     make(dir);
     assert.throws(() => backups.locateSource(dir), message);
   }
@@ -294,11 +291,10 @@ test('a backup of a ledger opened again by the program is identical to the live 
   const { f, backup, send } = setup(t);
   await seedVariedLedger(send);
   const { directory } = backup();
-  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-copy-'));
-  t.after(() => fs.rmSync(copy, { recursive: true, force: true }));
+  const copy = temporaryFolder(t, 'qianlai-copy-');
   fs.copyFileSync(path.join(directory, 'qianlai.sqlite'), path.join(copy, 'qianlai.sqlite'));
   const reopened = openLedger(copy);
-  t.after(() => reopened.close());
+  cleanup(t, () => reopened.close());
   assert.deepEqual(
     await reopened.command({ kind: 'read' }),
     await f.ledger.command({ kind: 'read' }),
