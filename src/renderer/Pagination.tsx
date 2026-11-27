@@ -1,7 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { PAGE_SIZE, paginate } from './records.ts';
 
-export function usePagination<T>(items: T[], resetKey: string) {
+export type Pager<T> = {
+  items: T[];
+  page: number;
+  pages: number;
+  count: number;
+  setPage: (page: number) => void;
+};
+export function usePagination<T>(items: T[], resetKey: string): Pager<T> {
   const [cursor, setCursor] = useState({ key: resetKey, page: 1 });
   const result = paginate(items, cursor.key === resetKey ? cursor.page : 1);
   const { page } = result;
