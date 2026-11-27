@@ -99,33 +99,53 @@ function events(file, offset) {
       }
     });
 }
+const { TABLE_NAMES } = require('../src/main/ledger-schema.cjs');
+const dataDir = (root) => path.join(root, '数据');
 function ledgerSnapshot(root) {
   const { DatabaseSync } = require('node:sqlite'),
-    directory = path.join(root, 'trial-data', 'user-data', 'stage0-trial');
-  const db = new DatabaseSync(path.join(directory, 'trial.sqlite'), { readOnly: true });
+    directory = dataDir(root);
+  const db = new DatabaseSync(path.join(directory, 'qianlai.sqlite'), { readOnly: true });
   let rows;
   try {
-    rows = {
-      state: db.prepare('SELECT * FROM trial_state ORDER BY id').all(),
-      operations: db.prepare('SELECT * FROM operations ORDER BY id').all(),
-      attachments: db.prepare('SELECT * FROM attachments ORDER BY id').all(),
-    };
+    rows = Object.fromEntries(
+      TABLE_NAMES.map((name) => [name, db.prepare(`SELECT * FROM ${name} ORDER BY rowid`).all()]),
+    );
   } finally {
     db.close();
   }
   const attachments = fs
-    .readdirSync(path.join(directory, 'attachments'))
+    .readdirSync(path.join(directory, '截图'))
     .sort()
-    .map((name) => ({ name, hash: hash(path.join(directory, 'attachments', name)) }));
-  return { rows, attachments, marker: hash(path.join(directory, 'managed-ledger.json')) };
+    .map((name) => ({ name, hash: hash(path.join(directory, '截图', name)) }));
+  return { rows, attachments };
+}
+// One obviously synthetic expense, written while the program is closed, so the reopen and
+// the copied-folder run have real content to keep.
+function addSyntheticExpense(root) {
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(path.join(dataDir(root), 'qianlai.sqlite'));
+  try {
+    db.exec(`INSERT INTO expenses (id, category, date, merchant, amount, note, created_at)
+      VALUES (1, '办公', '2026-11-01', '合成商户', 12345, '合成冒烟记录', '2026-11-01T00:00:00.000Z')`);
+  } finally {
+    db.close();
+  }
+}
+function automaticBackups(root) {
+  const backups = path.join(root, '备份');
+  if (!fs.existsSync(backups)) return [];
+  return fs
+    .readdirSync(backups)
+    .filter((name) => name.endsWith('_自动备份'))
+    .filter((name) => fs.existsSync(path.join(backups, name, 'backup.json')));
 }
 async function run(root, iteration, diagnosticCmd = false) {
-  const log = path.join(root, 'trial-data', 'user-data', 'logs', 'startup.log');
+  const log = path.join(root, '运行记录', 'logs', 'startup.log');
   const offset = fs.existsSync(log) ? fs.readFileSync(log, 'utf8').length : 0;
   const env = { ...process.env };
   for (const key of Object.keys(env))
     if (
-      key.startsWith('XX_FINANCE_') ||
+      key.startsWith('QIANLAI_') ||
       key.startsWith('ELECTRON_') ||
       key === 'NODE_OPTIONS' ||
       key === 'NODE_PATH'
@@ -202,9 +222,9 @@ async function run(root, iteration, diagnosticCmd = false) {
     }
     assert.deepEqual(remaining, [], 'A process from this application invocation remains');
     assert.equal(
-      fs.existsSync(path.join(root, 'trial-data', 'user-data', 'stage0-trial', '.writer-lock')),
+      fs.existsSync(path.join(dataDir(root), 'qianlai.sqlite-journal')),
       false,
-      'Normal GUI close left the writer lock',
+      'Normal GUI close left the database journal',
     );
     return {
       iteration,
@@ -249,33 +269,35 @@ async function main() {
     root,
     JSON.parse(fs.readFileSync(path.join(root, 'file-hashes.json'), 'utf8')),
   );
-  assert.equal(
-    fs.existsSync(path.join(root, 'trial-data')),
-    false,
-    'Refuse to use any existing ledger',
-  );
-  assert.equal(
-    fs.existsSync(path.join(root, 'backups')),
-    false,
-    'Refuse to use any existing backup directory',
-  );
-  const first = await run(root, 1, true),
-    before = ledgerSnapshot(root);
-  const oldMarker = path.join(root, 'trial-data', 'trial-marker.txt'),
-    legacyIdentity = 'qianlai-' + 'a'.repeat(40) + '-12345\n';
-  assert.equal(fs.readFileSync(oldMarker, 'utf8'), 'qianlai-data-v1\n');
-  fs.writeFileSync(oldMarker, legacyIdentity);
+  for (const name of ['数据', '备份', '运行记录'])
+    assert.equal(fs.existsSync(path.join(root, name)), false, `Refuse to use an existing ${name}`);
+  const first = await run(root, 1, true);
+  for (const name of ['数据', '备份', '运行记录'])
+    assert.ok(
+      fs.statSync(path.join(root, name)).isDirectory(),
+      `First start did not create ${name}`,
+    );
+  assert.deepEqual(automaticBackups(root), [], 'An empty ledger was backed up');
+  addSyntheticExpense(root);
+  const before = ledgerSnapshot(root);
   const second = await run(root, 2);
   assert.deepEqual(ledgerSnapshot(root), before, 'Reopen changed ledger facts or attachments');
-  assert.equal(fs.readFileSync(oldMarker, 'utf8'), legacyIdentity);
+  assert.equal(automaticBackups(root).length, 1, 'Opening a non-empty ledger made no daily backup');
+  // Moving to another computer = copying the whole folder. Run the copy and check it.
+  const copy = root + '-copy';
+  assert.equal(fs.existsSync(copy), false);
+  fs.cpSync(root, copy, { recursive: true });
+  const third = await run(copy, 3);
+  assert.deepEqual(ledgerSnapshot(copy), before, 'The copied folder lost ledger facts');
+  assert.deepEqual(ledgerSnapshot(root), before, 'Running the copy changed the original');
   console.log(
     JSON.stringify(
       {
         scope:
-          'Real packaged GUI, default portable paths and normal reopen on Windows build runner; not Windows 10 clean offline/Alt+F4/shutdown/power-loss acceptance',
-        runs: [first, second],
+          'Real packaged GUI, portable folder, reopen and copied-folder run on Windows build runner; not Windows 10 clean offline/Alt+F4/shutdown/power-loss acceptance',
+        runs: [first, second, third],
         ledgerPreserved: true,
-        oldBuildMarkerPreserved: true,
+        copiedFolderWorks: true,
       },
       null,
       2,

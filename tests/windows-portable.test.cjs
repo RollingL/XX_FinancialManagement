@@ -11,12 +11,11 @@ const {
 test('optional diagnostics leave business path creation to the runtime and preserve safe log/exit behavior', () => {
   for (const probe of [false, true]) {
     const script = launchScript('synthetic-build-id', probe);
-    assert.ok(!script.includes('XX_FINANCE_USER_DATA_DIR='));
-    assert.ok(!script.includes('XX_FINANCE_DATA_DIR='));
-    assert.ok(!script.includes('XX_FINANCE_BACKUP_DIR='));
+    // The program finds its own folders; the script names none of them.
+    assert.ok(!/QIANLAI_HOME|数据|备份|运行记录/.test(script));
+    assert.ok(script.includes('set "QIANLAI_STARTUP_DIAGNOSTICS=1"'));
     assert.match(script, /Qianlai\.exe/);
     assert.match(script, /--diagnostics/);
-    assert.ok(!script.includes('trial-marker.txt'));
     assert.ok(!script.includes('findstr'));
     assert.ok(!/\bcall\b/i.test(script));
     // NTSTATUS crashes can be negative in cmd.exe; ERRORLEVEL 1 misses those.
@@ -54,7 +53,10 @@ test('optional diagnostics leave business path creation to the runtime and prese
       script.indexOf('\r\n:log_ready\r\n') < script.indexOf('>"%LOG_DIR%\\status.txt"'),
       'Only the newly claimed directory may receive log writes',
     );
-    assert.ok(!/mkdir[^\r\n]*(?:trial-data|user-data|backups)/.test(script));
+    assert.deepEqual(script.match(/mkdir[^\r\n]*/g), [
+      'mkdir "%~dp0diagnostics" 2>nul',
+      'mkdir "%LOG_DIR%" 2>nul && goto :log_ready',
+    ]);
     assert.ok(
       !/powershell|curl|wget|https?:|executionpolicy|\brmdir\b|\bdel\b|Remove-Item/i.test(script),
     );

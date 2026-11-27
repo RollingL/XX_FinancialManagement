@@ -1,4 +1,4 @@
-import type { Expense, Batch, Allocation } from './model.ts';
+import type { Expense, Batch } from './model.ts';
 export type AdvanceDetails = {
   date?: string;
   note?: string;
@@ -24,41 +24,6 @@ export type ExpenseEvent = {
   before: Expense;
   after: Expense | null;
 };
-export type InvoiceIdentityType = 'unconfirmed' | 'number' | 'code-number';
-export type Invoice = {
-  id: number;
-  identityType: InvoiceIdentityType;
-  number: string;
-  code: string;
-  date: string;
-  seller: string;
-  buyer: string;
-  amount: number;
-  note: string;
-  attachmentIds: string[];
-  allocations: Allocation[];
-  expenseIds?: number[];
-  revision: number;
-  createdAt: string;
-};
-export type InvoiceEvent = {
-  requestId: string;
-  action:
-    | 'invoice'
-    | 'invoice-identity'
-    | 'invoice-attachment'
-    | 'invoice-allocate'
-    | 'invoice-link'
-    | 'invoice-edit'
-    | 'invoice-delete'
-    | 'batch-invoice-link'
-    | 'expense-invoice-unlink';
-  at: string;
-  invoiceId: number;
-  revision: number;
-  before: Invoice | null;
-  after: Invoice | null;
-};
 export type AdvanceEvent = {
   requestId: string;
   action: 'correct-advance' | 'delete-advance';
@@ -76,26 +41,65 @@ export type LedgerState = {
   batchEvents?: BatchEvent[];
   expenseEvents?: ExpenseEvent[];
   advanceEvents?: AdvanceEvent[];
-  invoices?: Invoice[];
-  invoiceEvents?: InvoiceEvent[];
   generation?: string;
-  resetReceipt?: { requestId: string; fromGeneration: string; at: string };
 };
 declare global {
   interface Window {
     localLedger?: { command: (payload: unknown) => Promise<unknown> };
   }
 }
-// A tab retains the generation it loaded. Maintenance-info must never silently refresh
-// this token: drafts and retries from before another tab's reset must stay stale.
+// A tab keeps the generation it loaded and sends it with every change. Clearing or
+// restoring the ledger gives it a new generation, so a stale tab cannot write into it.
+// Maintenance-info must never refresh this token.
 let loadedGeneration: string | undefined;
+const WITHOUT_GENERATION = ['read', 'maintenance-info', 'attachment', 'show-folder'];
+
+// The desktop bridge wraps every refusal as “Error invoking remote method …: Error: 原因”.
+// Only the reason is meant for the user.
+const BRIDGE_PREFIX = /^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/;
+export function plainMessage(error: unknown) {
+  const text = error instanceof Error ? error.message : String(error ?? '');
+  return text.replace(BRIDGE_PREFIX, '') || '本地读写失败，请重试';
+}
+
+// A save refused because this window shows out-of-date records ends with “请刷新后…”.
+// The desktop window has no refresh button, so the ledger is read again right away,
+// the screens are told (onLedgerReloaded), and the message says what happened.
+const ASKS_FOR_REFRESH = /，请刷新(?:页面)?后[^，。]*$/;
+const reloadListeners = new Set<(state: LedgerState) => void>();
+export function onLedgerReloaded(listener: (state: LedgerState) => void) {
+  reloadListeners.add(listener);
+  return () => {
+    reloadListeners.delete(listener);
+  };
+}
+async function explainRefusal(error: unknown): Promise<Error> {
+  const text = plainMessage(error);
+  if (!ASKS_FOR_REFRESH.test(text)) return Error(text);
+  try {
+    const state = await ledgerCommand({ kind: 'read' });
+    for (const listener of reloadListeners) listener(state);
+  } catch {
+    return Error(text);
+  }
+  return Error(text.replace(ASKS_FOR_REFRESH, '。已重新读取最新账本，请核对后再保存。'));
+}
+
 export async function ledgerCommand<T = LedgerState>(payload: unknown): Promise<T> {
+  try {
+    return await send<T>(payload);
+  } catch (error) {
+    throw (payload as { kind?: unknown })?.kind === 'read'
+      ? Error(plainMessage(error))
+      : await explainRefusal(error);
+  }
+}
+async function send<T>(payload: unknown): Promise<T> {
   const input = payload as Record<string, unknown>;
   const request =
     input &&
     typeof input === 'object' &&
-    input.kind !== 'read' &&
-    input.kind !== 'maintenance-info' &&
+    !WITHOUT_GENERATION.includes(input.kind as string) &&
     loadedGeneration &&
     !Object.hasOwn(input, 'generation')
       ? { ...input, generation: loadedGeneration }

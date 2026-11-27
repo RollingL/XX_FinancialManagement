@@ -8,17 +8,12 @@ const { EventEmitter } = require('node:events'),
   { randomUUID } = require('node:crypto');
 const mainFile = path.resolve(__dirname, '../src/main/main.cjs'),
   source = fs.readFileSync(mainFile, 'utf8');
+const schema = require('../src/main/ledger-schema.cjs');
 const base = path.resolve(path.sep, 'synthetic-electron-main'),
-  USER = path.join(base, 'user'),
-  DATA = path.join(base, 'ledger'),
-  BACKUP = path.join(base, 'backups'),
-  DEFAULT_USER = path.join(base, 'default-user');
-const managedEnv = {
-  XX_FINANCE_MANAGED_TRIAL: '1',
-  XX_FINANCE_USER_DATA_DIR: USER,
-  XX_FINANCE_DATA_DIR: DATA,
-  XX_FINANCE_BACKUP_DIR: BACKUP,
-};
+  HOME = path.join(base, '钱来'),
+  { dataDir: DATA, backupDir: BACKUP, runtimeDir: RUNTIME } = schema.homeLayout(HOME);
+// Values made inside the isolated main-process context have their own Array and Object.
+const plain = (value) => JSON.parse(JSON.stringify(value));
 function deferred() {
   let resolve, reject;
   const promise = new Promise((done, fail) => {
@@ -49,26 +44,11 @@ function harness(options = {}) {
     windows = [],
     ready = deferred(),
     quitEvents = [];
-  const files = new Map([
-    [USER, 'directory'],
-    [DATA, 'directory'],
-    [BACKUP, 'directory'],
-    ...(options.files || []),
-  ]);
+  const files = new Map([[HOME, 'directory'], [RUNTIME, 'directory'], ...(options.files || [])]);
   const platform = options.platform || process.platform,
     resources = path.join(base, 'resources');
   for (const missing of options.missing || []) files.delete(missing);
-  const contents = new Map(options.contents || []);
   const fakeFs = {
-    readFileSync(file) {
-      if (!contents.has(file)) throw Error('synthetic missing contents');
-      return contents.get(file);
-    },
-    writeFileSync(file, value) {
-      calls.push({ kind: 'writeFile', file });
-      contents.set(file, value);
-      files.set(file, 'file');
-    },
     lstatSync(file) {
       const kind = files.get(file);
       if (!kind) throw Object.assign(Error('synthetic ENOENT'), { code: 'ENOENT' });
@@ -76,11 +56,8 @@ function harness(options = {}) {
         isDirectory: () => kind === 'directory',
         isFile: () => kind === 'file',
         isSymbolicLink: () => kind === 'symlink',
-        size: contents.get(file)?.length || 10,
+        size: 10,
       };
-    },
-    realpathSync(file) {
-      return file;
     },
     mkdirSync(file) {
       calls.push({ kind: 'mkdir', file });
@@ -95,11 +72,24 @@ function harness(options = {}) {
     rmSync(file, settings) {
       calls.push({ kind: 'rm', file, settings });
     },
+    renameSync(from, to) {
+      calls.push({ kind: 'rename', from, to });
+      if (options.renameError) throw options.renameError;
+    },
+    appendFileSync(file, text) {
+      calls.push({ kind: 'append', file, text });
+    },
+    unlinkSync(file) {
+      calls.push({ kind: 'unlink', file });
+    },
   };
   const processEvents = new EventEmitter();
   const app = new EventEmitter(),
-    paths = { userData: DEFAULT_USER };
+    paths = {};
   app.isPackaged = !!options.packaged;
+  app.commandLine = {
+    appendSwitch: (name, value) => calls.push({ kind: 'switch', name, value }),
+  };
   app.requestSingleInstanceLock = () => {
     calls.push({ kind: 'single-instance' });
     return options.primary !== false;
@@ -117,6 +107,7 @@ function harness(options = {}) {
     calls.push({ kind: 'exit', code });
     exitCodes.push(code);
   };
+  app.relaunch = () => calls.push({ kind: 'relaunch' });
   app.quit = () => {
     calls.push({ kind: 'quit' });
     const attempt = event();
@@ -187,20 +178,40 @@ function harness(options = {}) {
         app,
         BrowserWindow,
         ipcMain,
+        Menu: {
+          buildFromTemplate: (template) => ({ template }),
+          setApplicationMenu: (menu) => calls.push({ kind: 'menu', menu }),
+        },
         dialog: {
           showOpenDialog: async (win, settings) => {
             calls.push({ kind: 'choose', win, settings });
             return options.choose ? options.choose() : { canceled: true, filePaths: [] };
           },
           showErrorBox: (title, message) => dialogs.push({ title, message }),
+          showMessageBoxSync: (settings) => {
+            calls.push({ kind: 'messageBox', settings });
+            return options.messageBoxChoice ?? 0;
+          },
+        },
+        shell: {
+          openPath: async (folder) => {
+            calls.push({ kind: 'openPath', folder });
+            return options.openPathProblem ?? '';
+          },
         },
       };
-    if (name === './windows-runtime.cjs')
-      return { configureWindowsPortable: () => options.portable || null };
-    if (name === './ledger.cjs')
-      return { createLedger: (...args) => factory('createLedger', args) };
-    if (name === './managed-ledger.cjs')
-      return { createManagedLedger: (...args) => factory('createManagedLedger', args) };
+    if (name === './app-paths.cjs')
+      return {
+        resolveHome: (args) => {
+          calls.push({ kind: 'resolveHome', args });
+          if (options.homeError) throw options.homeError;
+          return options.resolved || { home: HOME, portable: false };
+        },
+      };
+    if (name === './ledger-schema.cjs') return schema;
+    if (name === './app-menu.cjs') return require('../src/main/app-menu.cjs');
+    if (name === './ledger-service.cjs')
+      return { openLedgerService: (...args) => factory('openLedgerService', args) };
     if (name === './sqlite-probe.cjs')
       return async (directory) => {
         calls.push({ kind: 'sqliteProbe', directory });
@@ -289,15 +300,15 @@ function harness(options = {}) {
 
 // Every runtime path below is synthetic; filesystem and ledger modules are replaced before execution.
 function assertProbeIsolation(h) {
-  for (const kind of ['createLedger', 'createManagedLedger', 'window', 'command'])
+  for (const kind of ['resolveHome', 'openLedgerService', 'window', 'command'])
     assert.equal(h.count(kind), 0, kind);
   assert.equal(h.handlers.size, 0);
   assert.equal(h.count('sqliteProbe'), 1);
   assert.equal(h.count('rm'), 1);
-  assert.equal(
-    h.calls.find((call) => call.kind === 'rm').file,
-    h.calls.find((call) => call.kind === 'mkdtemp').file,
-  );
+  const temporary = h.calls.find((call) => call.kind === 'mkdtemp').file;
+  assert.equal(h.calls.find((call) => call.kind === 'rm').file, temporary);
+  assert.equal(h.paths.userData, temporary);
+  assert.equal(h.paths.sessionData, temporary);
 }
 test('probe requires an explicit passed SQLite status', async () => {
   for (const result of [{ status: 'failed' }, { status: 'not run' }, {}, null]) {
@@ -323,80 +334,113 @@ test('probe succeeds with a passed SQLite report, without UI startup', async () 
     }
 });
 
-test('invalid native configuration fails before readiness or database creation', () => {
+test('an unusable home folder stops startup before readiness or opening any ledger', () => {
   const cases = [
-    { env: { XX_FINANCE_MANAGED_TRIAL: '1' } },
-    { env: { XX_FINANCE_MANAGED_TRIAL: '1', XX_FINANCE_USER_DATA_DIR: USER } },
-    { env: { ...managedEnv, XX_FINANCE_DATA_DIR: 'relative-ledger' } },
-    { env: { XX_FINANCE_USER_DATA_DIR: 'relative-user' } },
-    { env: { XX_FINANCE_USER_DATA_DIR: USER }, missing: [USER] },
-    { env: { XX_FINANCE_USER_DATA_DIR: USER }, files: [[USER, 'symlink']] },
-    { env: { XX_FINANCE_USER_DATA_DIR: USER }, files: [[USER, 'file']] },
-    { env: { XX_FINANCE_USER_DATA_DIR: USER }, files: [[path.join(USER, 'logs'), 'symlink']] },
-    {
-      env: { XX_FINANCE_USER_DATA_DIR: USER },
-      files: [[path.join(USER, 'crashDumps'), 'symlink']],
-    },
-    { env: { ...managedEnv, XX_FINANCE_BACKUP_DIR: 'relative-backups' } },
+    { homeError: Error('QIANLAI_HOME 必须是绝对路径') },
+    { files: [[HOME, 'file']] },
+    { files: [[HOME, 'symlink']] },
+    { files: [[RUNTIME, 'symlink']] },
+    { files: [[path.join(RUNTIME, 'logs'), 'symlink']] },
+    { files: [[path.join(RUNTIME, 'crashDumps'), 'file']] },
   ];
   for (const input of cases) {
     const h = harness(input);
-    assert.ok(h.startupError);
+    assert.ok(h.startupError, JSON.stringify(input.files));
     assert.deepEqual(h.exitCodes, [1]);
-    for (const kind of ['whenReady', 'createLedger', 'createManagedLedger', 'window'])
+    assert.equal(h.dialogs[0].title, '无法启动钱来');
+    for (const kind of ['whenReady', 'openLedgerService', 'window'])
       assert.equal(h.count(kind), 0, kind);
   }
 });
 
-test('explicit userData, sessionData, logs and crash paths are isolated before readiness', async () => {
-  const h = harness({ env: managedEnv });
+test('Electron keeps its cache, logs and crash reports in the 运行记录 folder, set before readiness', async () => {
+  const h = harness({ env: { QIANLAI_HOME: HOME }, packaged: true, platform: 'linux' });
   assert.equal(h.startupError, undefined);
-  for (const name of ['userData', 'sessionData']) assert.equal(h.paths[name], USER);
-  for (const name of ['logs', 'crashDumps']) assert.equal(h.paths[name], path.join(USER, name));
+  const { args } = h.calls.find((call) => call.kind === 'resolveHome');
+  assert.deepEqual(
+    { ...args, env: { ...args.env } },
+    {
+      packaged: true,
+      platform: 'linux',
+      resourcesPath: path.join(base, 'resources'),
+      env: { QIANLAI_HOME: HOME },
+      projectRoot: path.resolve(__dirname, '..'),
+    },
+  );
+  for (const name of ['userData', 'sessionData']) assert.equal(h.paths[name], RUNTIME);
+  for (const name of ['logs', 'crashDumps']) assert.equal(h.paths[name], path.join(RUNTIME, name));
+  const ready = h.calls.findIndex((item) => item.kind === 'whenReady');
   assert.ok(
     h.calls
       .filter((call) => call.kind === 'setPath')
-      .every(
-        (call) => h.calls.indexOf(call) < h.calls.findIndex((item) => item.kind === 'whenReady'),
-      ),
+      .every((call) => h.calls.indexOf(call) < ready),
   );
-  assert.equal(h.count('createManagedLedger'), 0);
+  assert.equal(h.count('openLedgerService'), 0);
   await h.start();
-  assert.equal(h.count('createManagedLedger'), 1);
+  assert.deepEqual(h.calls.find((call) => call.kind === 'openLedgerService').args, [HOME]);
 });
 
-test('ordinary startup keeps the prior default or explicit ledger route without managed takeover', async () => {
-  for (const env of [{}, { XX_FINANCE_DATA_DIR: DATA }]) {
-    const h = harness({ env });
-    await h.start();
-    assert.equal(h.count('createLedger'), 1);
-    assert.equal(h.count('createManagedLedger'), 0);
-    assert.equal(h.count('setPath'), 0);
-    assert.equal(
-      h.calls.find((call) => call.kind === 'createLedger').args[0],
-      env.XX_FINANCE_DATA_DIR || path.join(DEFAULT_USER, 'stage0-trial'),
-    );
-    assert.deepEqual(h.exitCodes, []);
-  }
+test('a missing home and 运行记录 folder are created on first start', async () => {
+  const h = harness({ missing: [HOME, RUNTIME] });
+  assert.equal(h.startupError, undefined);
+  const made = h.calls.filter((call) => call.kind === 'mkdir').map((call) => call.file);
+  for (const folder of [
+    HOME,
+    RUNTIME,
+    path.join(RUNTIME, 'logs'),
+    path.join(RUNTIME, 'crashDumps'),
+  ])
+    assert.ok(made.includes(folder), folder);
+  await h.start();
+  assert.equal(h.count('window'), 1);
 });
 
-test('managed startup passes only the configured root and backup destination', async () => {
-  const h = harness({ env: managedEnv });
+test('the window keeps the desktop security settings', async () => {
+  const h = harness();
   await h.start();
-  assert.equal(h.count('createLedger'), 0);
-  assert.equal(h.count('createManagedLedger'), 1);
-  const { args } = h.calls.find((call) => call.kind === 'createManagedLedger');
-  assert.equal(args[0], DATA);
-  assert.equal(args.length, 2);
-  assert.equal(args[1].backupDestination, BACKUP);
   const config = h.calls.find((call) => call.kind === 'window').config;
   assert.equal(config.webPreferences.sandbox, true);
   assert.equal(config.webPreferences.contextIsolation, true);
   assert.equal(config.webPreferences.nodeIntegration, false);
 });
 
+test('built-in controls use Chinese and Windows gets no menu with Reload or Developer Tools', async () => {
+  for (const platform of ['win32', 'linux']) {
+    const h = harness({ platform });
+    assert.deepEqual(
+      plain(h.calls.filter((call) => call.kind === 'switch')),
+      [{ kind: 'switch', name: 'lang', value: 'zh-CN' }],
+      'set before readiness',
+    );
+    await h.start();
+    assert.deepEqual(plain(h.calls.filter((call) => call.kind === 'menu')), [
+      { kind: 'menu', menu: null },
+    ]);
+    assert.ok(
+      h.calls.findIndex((call) => call.kind === 'menu') <
+        h.calls.findIndex((call) => call.kind === 'window'),
+    );
+  }
+  const mac = harness({ platform: 'darwin' });
+  await mac.start();
+  const { template } = mac.calls.find((call) => call.kind === 'menu').menu;
+  const items = template.flatMap((group) => [group, ...group.submenu]);
+  assert.deepEqual(
+    template.map((group) => group.label),
+    ['钱来', '编辑', '窗口'],
+  );
+  for (const role of ['quit', 'copy', 'paste', 'selectAll'])
+    assert.ok(
+      items.some((item) => item.role === role),
+      role,
+    );
+  for (const role of ['reload', 'forceReload', 'toggleDevTools', 'viewMenu'])
+    assert.ok(!items.some((item) => item.role === role), role);
+  assert.ok(items.every((item) => item.type === 'separator' || /^[一-龥]/.test(item.label)));
+});
+
 test('ledger IPC requires the exact main sender, frame and entry file URL', async () => {
-  const h = harness({ env: managedEnv });
+  const h = harness();
   await h.start();
   assert.deepEqual([...h.handlers.keys()], ['ledger:command']);
   const ledger = h.handlers.get('ledger:command'),
@@ -425,7 +469,7 @@ test('ledger IPC requires the exact main sender, frame and entry file URL', asyn
 
 test('only the same-entry main-frame reload is allowed, while closing, foreign navigation and permissions stay blocked', async () => {
   const close = deferred(),
-    h = harness({ env: managedEnv, close: () => close.promise });
+    h = harness({ close: () => close.promise });
   await h.start();
   const win = h.windows[0],
     url = win.webContents.mainFrame.url;
@@ -467,7 +511,6 @@ test('repeated quit cannot bypass pending writes or asynchronous ledger close', 
   const write = deferred(),
     close = deferred();
   const h = harness({
-    env: managedEnv,
     command: () => write.promise,
     close: () => close.promise,
   });
@@ -496,7 +539,7 @@ test('repeated quit cannot bypass pending writes or asynchronous ledger close', 
 
 test('a rejected pending command still settles before safe shutdown', async () => {
   const write = deferred(),
-    h = harness({ env: managedEnv, command: () => write.promise });
+    h = harness({ command: () => write.promise });
   await h.start();
   const pending = h.handlers.get('ledger:command')(h.trusted(), { kind: 'synthetic-write' }),
     rejection = assert.rejects(pending, /synthetic command failure/);
@@ -514,7 +557,6 @@ test('a rejected pending command still settles before safe shutdown', async () =
 
 test('failed close keeps the closing gate and never reports a successful quit', async () => {
   const h = harness({
-    env: managedEnv,
     close: () => Promise.reject(Error('synthetic close failure')),
   });
   await h.start();
@@ -523,7 +565,7 @@ test('failed close keeps the closing gate and never reports a successful quit', 
   assert.equal(h.count('quit'), 0);
   assert.deepEqual(h.exitCodes, [1]);
   assert.equal(h.dialogs.length, 1);
-  assert.match(h.dialogs[0].message, /已保留账本/);
+  assert.match(h.dialogs[0].message, /账本已保留/);
   assert.equal(h.beforeQuit().prevented, 1);
   await flush();
   assert.equal(h.count('ledger.close'), 1);
@@ -533,7 +575,6 @@ test('failed close keeps the closing gate and never reports a successful quit', 
 test('startup failure waits for available ledger cleanup before exiting with an error', async () => {
   const close = deferred(),
     h = harness({
-      env: managedEnv,
       loadError: Error('synthetic page startup failure'),
       close: () => close.promise,
     });
@@ -548,7 +589,7 @@ test('startup failure waits for available ledger cleanup before exiting with an 
 });
 
 test('ledger creation failure exits with an error without opening a window', async () => {
-  const h = harness({ env: managedEnv, ledgerError: Error('synthetic database startup failure') });
+  const h = harness({ ledgerError: Error('synthetic database startup failure') });
   await h.start();
   assert.equal(h.count('window'), 0);
   assert.equal(h.count('ledger.close'), 0);
@@ -559,39 +600,48 @@ test('ledger creation failure exits with an error without opening a window', asy
 
 test('startup cleanup failure exits with error and records that the ledger and lock remain', async () => {
   const h = harness({
-    env: managedEnv,
     loadError: Error('synthetic startup failure'),
     close: () => Promise.reject(Error('synthetic close failure')),
   });
   await h.start();
   assert.deepEqual(h.exitCodes, [1]);
   assert.equal(h.count('quit'), 0);
-  assert.ok(h.errors.some((message) => message.includes('保留账本及锁')));
+  assert.ok(h.errors.some((message) => message.includes('启动收尾未完成，账本已保留')));
   assert.equal(h.count('ledger.close'), 1);
 });
 
-test('native restore chooser pins the source to a user-selected directory and passes generation, with cancellation and shutdown protection', async () => {
+test('only the native folder chooser can name a folder outside 备份, and cancelling or closing stops it', async () => {
   const generation = 'synthetic-generation',
-    folder = path.join(base, 'synthetic-backup');
-  const h = harness({
-    env: managedEnv,
-    choose: async () => ({ canceled: false, filePaths: [folder] }),
-  });
+    folder = path.join(base, '旧的钱来');
+  const h = harness({ choose: async () => ({ canceled: false, filePaths: [folder] }) });
   await h.start();
   const handler = h.handlers.get('ledger:command');
   await handler(h.trusted(), { kind: 'choose-restore', generation });
-  assert.equal(h.count('choose'), 1);
-  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.find((c) => c.kind === 'command').payload)), {
+  const choose = h.calls.find((c) => c.kind === 'choose');
+  assert.equal(choose.settings.defaultPath, BACKUP);
+  assert.deepEqual(plain(choose.settings.properties), ['openDirectory']);
+  assert.deepEqual(plain(h.calls.find((c) => c.kind === 'command').payload), {
     kind: 'prepare-restore',
     generation,
-    backup: folder,
+    source: folder,
   });
   await assert.rejects(
-    handler(h.trusted(), { kind: 'choose-restore', generation, backup: '/renderer/path' }),
+    handler(h.trusted(), { kind: 'choose-restore', generation, source: '/renderer/path' }),
     /无效/,
   );
+  await assert.rejects(
+    handler(h.trusted(), { kind: 'prepare-restore', generation, source: '/renderer/path' }),
+    /恢复预览请求无效/,
+  );
   assert.equal(h.count('choose'), 1);
-  const canceled = harness({ env: managedEnv });
+  assert.equal(h.count('command'), 1);
+  await handler(h.trusted(), {
+    kind: 'prepare-restore',
+    generation,
+    backup: '2026-11-27_自动备份',
+  });
+  assert.equal(h.count('command'), 2);
+  const canceled = harness();
   await canceled.start();
   assert.equal(
     await canceled.handlers.get('ledger:command')(canceled.trusted(), {
@@ -602,7 +652,7 @@ test('native restore chooser pins the source to a user-selected directory and pa
   );
   assert.equal(canceled.count('command'), 0);
   const choosing = deferred(),
-    closing = harness({ env: managedEnv, choose: () => choosing.promise });
+    closing = harness({ choose: () => choosing.promise });
   await closing.start();
   const pending = closing.handlers.get('ledger:command')(closing.trusted(), {
     kind: 'choose-restore',
@@ -616,51 +666,140 @@ test('native restore chooser pins the source to a user-selected directory and pa
   await flush();
 });
 
-test('new marked Mac bundle isolates its default data and refuses an unowned existing folder', async () => {
-  const resources = path.join(base, 'resources'),
-    marker = path.join(resources, 'mac-trial.json'),
-    buildId = randomUUID(),
-    root = path.resolve(resources, '../../../mac-trial-data'),
-    tag = path.join(root, 'trial-marker.txt');
-  const contents = [[marker, JSON.stringify({ format: 1, buildId })]];
-  const h = harness({ packaged: true, platform: 'darwin', files: [[marker, 'file']], contents });
+test('only the native folder chooser can name where a USB backup goes', async () => {
+  const generation = 'synthetic-generation',
+    requestId = randomUUID(),
+    usb = path.join(base, '合成U盘');
+  const h = harness({ choose: async () => ({ canceled: false, filePaths: [usb] }) });
   await h.start();
-  assert.equal(h.count('createManagedLedger'), 1);
-  assert.equal(
-    h.calls.find((c) => c.kind === 'createManagedLedger').args[0],
-    path.join(root, 'user-data', 'ledger'),
-  );
-  assert.equal(h.paths.userData, path.join(root, 'user-data'));
-  assert.equal(h.count('createLedger'), 0);
-  const reopen = harness({
-    packaged: true,
-    platform: 'darwin',
-    files: [
-      [marker, 'file'],
-      [root, 'directory'],
-      [tag, 'file'],
-    ],
-    contents: [...contents, [tag, buildId + '\n']],
+  const handler = h.handlers.get('ledger:command');
+  await handler(h.trusted(), { kind: 'backup-elsewhere', generation, requestId });
+  const choose = h.calls.find((c) => c.kind === 'choose');
+  assert.deepEqual(plain(choose.settings.properties), ['openDirectory', 'createDirectory']);
+  assert.deepEqual(plain(h.calls.find((c) => c.kind === 'command').payload), {
+    kind: 'create-backup',
+    requestId,
+    generation,
+    destination: usb,
   });
-  await reopen.start();
-  assert.equal(reopen.count('createManagedLedger'), 1);
-  for (const extra of [[], [[tag, 'file']]]) {
-    const rejected = harness({
-      packaged: true,
-      platform: 'darwin',
-      files: [[marker, 'file'], [root, 'directory'], ...extra],
-      contents: [...contents, [tag, 'different']],
-    });
-    assert.deepEqual(rejected.exitCodes, [1]);
-    assert.equal(rejected.count('whenReady'), 0);
-    assert.equal(rejected.count('createManagedLedger'), 0);
-    assert.equal(rejected.count('writeFile'), 0);
+  for (const payload of [
+    { kind: 'backup-elsewhere', generation, requestId, destination: '/renderer/path' },
+    { kind: 'backup-elsewhere', generation },
+    { kind: 'create-backup', generation, requestId, destination: '/renderer/path' },
+  ])
+    await assert.rejects(handler(h.trusted(), payload), /备份请求无效/);
+  assert.equal(h.count('choose'), 1);
+  assert.equal(h.count('command'), 1);
+  // An ordinary backup into 备份 needs no chooser.
+  await handler(h.trusted(), { kind: 'create-backup', generation, requestId: randomUUID() });
+  assert.equal(h.count('command'), 2);
+
+  const canceled = harness();
+  await canceled.start();
+  assert.equal(
+    await canceled.handlers.get('ledger:command')(canceled.trusted(), {
+      kind: 'backup-elsewhere',
+      generation,
+      requestId,
+    }),
+    null,
+  );
+  assert.equal(canceled.count('command'), 0);
+  const choosing = deferred(),
+    closing = harness({ choose: () => choosing.promise });
+  await closing.start();
+  const pending = closing.handlers.get('ledger:command')(closing.trusted(), {
+    kind: 'backup-elsewhere',
+    generation,
+    requestId,
+  });
+  await flush();
+  closing.beforeQuit();
+  choosing.resolve({ canceled: false, filePaths: [usb] });
+  await assert.rejects(pending, /正在关闭/);
+  assert.equal(closing.count('command'), 0);
+  await flush();
+});
+
+test('the window can open only the 备份 folder or the whole 钱来 folder in the file manager', async () => {
+  const h = harness({ missing: [BACKUP] });
+  await h.start();
+  const handler = h.handlers.get('ledger:command');
+  assert.deepEqual(plain(await handler(h.trusted(), { kind: 'show-folder', which: 'backups' })), {
+    opened: true,
+  });
+  assert.ok(h.calls.some((call) => call.kind === 'mkdir' && call.file === BACKUP));
+  await handler(h.trusted(), { kind: 'show-folder', which: 'home' });
+  assert.deepEqual(
+    h.calls.filter((call) => call.kind === 'openPath').map((call) => call.folder),
+    [BACKUP, HOME],
+  );
+  for (const payload of [
+    { kind: 'show-folder', which: 'data' },
+    { kind: 'show-folder', which: '/etc' },
+    { kind: 'show-folder', which: 'home', path: '/etc' },
+  ])
+    await assert.rejects(handler(h.trusted(), payload), /文件夹无效/);
+  assert.equal(h.count('openPath'), 2);
+  assert.equal(h.count('command'), 0);
+  const failing = harness({ openPathProblem: '合成的打开失败' });
+  await failing.start();
+  await assert.rejects(
+    failing.handlers.get('ledger:command')(failing.trusted(), {
+      kind: 'show-folder',
+      which: 'home',
+    }),
+    /没能打开文件夹：合成的打开失败/,
+  );
+});
+
+test('a damaged ledger can be renamed aside (never deleted) so the program reopens empty', async () => {
+  const damaged = Object.assign(Error('账本文件已损坏，无法读取'), { code: 'LEDGER_DAMAGED' });
+  const accept = harness({ ledgerError: damaged, messageBoxChoice: 1 });
+  await accept.start();
+  const box = accept.calls.find((call) => call.kind === 'messageBox').settings;
+  assert.equal(box.message, '账本文件已损坏，无法读取');
+  assert.deepEqual(plain(box.buttons), ['退出', '改名保存并重新打开']);
+  assert.equal(box.cancelId, 0);
+  const rename = accept.calls.find((call) => call.kind === 'rename');
+  assert.equal(rename.from, DATA);
+  assert.match(rename.to, /数据-有问题-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/);
+  assert.equal(path.dirname(rename.to), HOME);
+  assert.equal(accept.count('relaunch'), 1);
+  assert.equal(accept.count('rm'), 0);
+  assert.deepEqual(accept.exitCodes, [0]);
+  assert.deepEqual(accept.dialogs, []);
+  assert.equal(accept.count('window'), 0);
+
+  const decline = harness({ ledgerError: damaged, messageBoxChoice: 0 });
+  await decline.start();
+  assert.equal(decline.count('rename'), 0);
+  assert.equal(decline.count('relaunch'), 0);
+  assert.deepEqual(decline.exitCodes, [1]);
+  assert.deepEqual(decline.dialogs, []);
+
+  const failed = harness({
+    ledgerError: damaged,
+    messageBoxChoice: 1,
+    renameError: Error('合成的改名失败'),
+  });
+  await failed.start();
+  assert.match(failed.dialogs[0].message, /改名没有成功：合成的改名失败/);
+  assert.deepEqual(failed.exitCodes, [1]);
+
+  for (const code of ['LEDGER_NEWER', 'LEDGER_IN_USE', undefined]) {
+    const other = harness({ ledgerError: Object.assign(Error('合成的其他问题'), { code }) });
+    await other.start();
+    assert.equal(other.count('messageBox'), 0, code);
+    assert.equal(other.count('rename'), 0, code);
+    assert.equal(other.dialogs[0].message, '合成的其他问题');
+    assert.deepEqual(other.exitCodes, [1]);
   }
 });
 
 test('opt-in startup diagnostics distinguish ledger, UI, child exit and cleanup without logging payloads', async () => {
   const h = harness({
-    env: { ...managedEnv, XX_FINANCE_STARTUP_DIAGNOSTICS: '1' },
+    env: { QIANLAI_STARTUP_DIAGNOSTICS: '1' },
     platform: 'win32',
   });
   await h.start();
@@ -701,12 +840,12 @@ test('opt-in startup diagnostics distinguish ledger, UI, child exit and cleanup 
   h.beforeQuit();
   await flush();
   assert.ok(events().some((item) => item.stage === 'cleanup-complete'));
-  const quiet = harness({ env: managedEnv });
+  const quiet = harness();
   await quiet.start();
   assert.deepEqual(quiet.errors, []);
   const probe = harness({
     probe: true,
-    env: { ...managedEnv, XX_FINANCE_STARTUP_DIAGNOSTICS: '1' },
+    env: { QIANLAI_STARTUP_DIAGNOSTICS: '1' },
   });
   await probe.start();
   assert.deepEqual(probe.errors, []);
@@ -716,7 +855,7 @@ test('opt-in startup diagnostics distinguish ledger, UI, child exit and cleanup 
 test('startup failure diagnostics retain the original error and do not claim completed cleanup early', async () => {
   const close = deferred(),
     h = harness({
-      env: { ...managedEnv, XX_FINANCE_STARTUP_DIAGNOSTICS: '1' },
+      env: { QIANLAI_STARTUP_DIAGNOSTICS: '1' },
       loadError: Error('synthetic load failure'),
       close: () => close.promise,
     });
@@ -734,13 +873,13 @@ test('startup failure diagnostics retain the original error and do not claim com
 });
 
 test('secondary instance never opens a ledger and existing primary regains focus', async () => {
-  const secondary = harness({ env: managedEnv, primary: false });
+  const secondary = harness({ primary: false });
   await secondary.start();
   assert.equal(secondary.count('quit'), 1);
   assert.equal(secondary.count('whenReady'), 0);
-  assert.equal(secondary.count('createManagedLedger'), 0);
+  assert.equal(secondary.count('openLedgerService'), 0);
   assert.equal(secondary.count('window'), 0);
-  const primary = harness({ env: managedEnv, minimized: true });
+  const primary = harness({ minimized: true });
   await primary.start();
   primary.app.emit('second-instance');
   assert.equal(primary.count('restore'), 1);
@@ -755,7 +894,7 @@ test('secondary instance never opens a ledger and existing primary regains focus
 test('window close and session query wait for a pending write and release once', async () => {
   for (const name of ['close', 'query-session-end']) {
     const write = deferred(),
-      h = harness({ env: managedEnv, command: () => write.promise });
+      h = harness({ command: () => write.promise });
     await h.start();
     const pending = h.handlers.get('ledger:command')(h.trusted(), { kind: 'synthetic-write' });
     await flush();
@@ -775,30 +914,30 @@ test('window close and session query wait for a pending write and release once',
   }
 });
 
-test('internal portable executable hands off to the supervised launcher without opening a ledger', async () => {
-  const portable = { launcher: path.join(base, 'Qianlai.exe'), allowLegacyRecovery: true };
-  const redirect = harness({ env: managedEnv, portable, platform: 'win32' });
+test('the inner Windows program hands off to Qianlai.exe in the same folder without opening a ledger', async () => {
+  const resolved = { home: HOME, portable: true };
+  const redirect = harness({ resolved, platform: 'win32', packaged: true });
   await redirect.start();
   assert.equal(redirect.count('spawn'), 1);
   assert.equal(redirect.count('whenReady'), 0);
-  assert.equal(redirect.count('createManagedLedger'), 0);
+  assert.equal(redirect.count('openLedgerService'), 0);
   assert.deepEqual(redirect.exitCodes, [0]);
   const spawn = redirect.calls.find((c) => c.kind === 'spawn');
-  assert.equal(spawn.file, portable.launcher);
+  assert.equal(spawn.file, path.join(HOME, 'Qianlai.exe'));
   assert.equal(spawn.settings.shell, false);
   assert.equal(spawn.settings.windowsHide, true);
-  for (const key of Object.keys(managedEnv)) assert.equal(spawn.settings.env[key], undefined);
-  const supervised = harness({ env: managedEnv, portable, platform: 'win32', supervised: true });
+  const supervised = harness({ resolved, platform: 'win32', packaged: true, supervised: true });
   await supervised.start();
   assert.equal(supervised.count('spawn'), 0);
-  assert.equal(
-    supervised.calls.find((c) => c.kind === 'createManagedLedger').args[1].allowLegacyRecovery,
-    true,
-  );
+  assert.deepEqual(supervised.calls.find((c) => c.kind === 'openLedgerService').args, [HOME]);
+  // The portable build always writes its startup stages to 运行记录/logs/startup.log.
+  const log = path.join(RUNTIME, 'logs', 'startup.log');
+  const lines = supervised.calls.filter((c) => c.kind === 'append' && c.file === log);
+  assert.ok(lines.some((c) => c.text.includes('"stage":"page-loaded"')));
 });
 
 test('fatal runtime errors clean up and exit nonzero with a visible explanation', async () => {
-  const h = harness({ env: managedEnv });
+  const h = harness();
   await h.start();
   h.processEvents.emit('uncaughtException', Error('private ledger details'));
   await flush();
@@ -809,7 +948,7 @@ test('fatal runtime errors clean up and exit nonzero with a visible explanation'
 });
 
 test('idle Windows session end starts cleanup without vetoing shutdown', async () => {
-  const h = harness({ env: managedEnv });
+  const h = harness();
   await h.start();
   const attempt = event();
   h.windows[0].emit('query-session-end', attempt);

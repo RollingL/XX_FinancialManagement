@@ -1,48 +1,15 @@
+// Cancelling a reimbursement batch: only that batch's progress changes, never money.
 const test = require('node:test'),
   assert = require('node:assert/strict');
-const fs = require('node:fs'),
-  os = require('node:os'),
-  path = require('node:path'),
-  { randomUUID } = require('node:crypto');
-const Database = require('better-sqlite3');
-const { createLedger } = require('../src/main/ledger.cjs');
+const { randomUUID } = require('node:crypto');
+const { ledgerFixture, read } = require('./ledger-fixture.cjs');
 
-function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-batch-cancel-'));
-  let ledger = createLedger(root);
-  t.after(() => {
-    ledger.close();
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  return {
-    get ledger() {
-      return ledger;
-    },
-    reopen() {
-      ledger.close();
-      ledger = createLedger(root);
-    },
-    db(fn) {
-      const db = new Database(path.join(root, 'trial.sqlite'));
-      try {
-        return fn(db);
-      } finally {
-        db.close();
-      }
-    },
-  };
-}
-const read = (f) => f.ledger.command({ kind: 'read' });
+const fixture = (t) => ledgerFixture(t, 'qianlai-batch-cancel-');
 const cancel = (id, requestId = randomUUID()) => ({ kind: 'cancel', requestId, id });
+// The whole ledger: the screen state, every stored row except the request log, and the log.
 async function snapshot(f) {
-  return {
-    state: await read(f),
-    ...f.db((db) => ({
-      raw: db.prepare('SELECT json FROM trial_state WHERE id=1').get().json,
-      operations: db.prepare('SELECT * FROM operations ORDER BY id').all(),
-      attachments: db.prepare('SELECT * FROM attachments ORDER BY id').all(),
-    })),
-  };
+  const { operations, ...rows } = f.rows();
+  return { state: await read(f), rows, operations: f.operations() };
 }
 function funds(state, balance) {
   return {
@@ -194,9 +161,8 @@ test('a new request cancelling an already cancelled batch leaves state and funds
     state = await f.ledger.command(input),
     after = await snapshot(f);
   assert.deepEqual(state, before.state);
-  assert.equal(after.raw, before.raw);
+  assert.deepEqual(after.rows, before.rows);
   assert.deepEqual(funds(state, balance), funds(before.state, balance));
-  assert.deepEqual(after.attachments, before.attachments);
   const newOperations = after.operations.filter(
     (operation) => !before.operations.some((old) => old.id === operation.id),
   );
@@ -229,16 +195,14 @@ test('operation insertion failure rolls back cancellation completely and the sam
     { balance } = await import('../src/renderer/model.ts'),
     input = cancel(targetId),
     before = await snapshot(f);
-  f.db((db) =>
-    db.exec(
-      "CREATE TRIGGER fail_cancel BEFORE INSERT ON operations WHEN NEW.kind='cancel' BEGIN SELECT RAISE(ABORT,'synthetic cancellation failure'); END",
-    ),
+  f.sql(
+    "CREATE TRIGGER fail_cancel BEFORE INSERT ON operations WHEN NEW.kind='cancel' BEGIN SELECT RAISE(ABORT,'synthetic cancellation failure'); END",
   );
   await assert.rejects(f.ledger.command(input), /synthetic cancellation failure/);
   assert.deepEqual(await snapshot(f), before);
   f.reopen();
   assert.deepEqual(await snapshot(f), before);
-  f.db((db) => db.exec('DROP TRIGGER fail_cancel'));
+  f.sql('DROP TRIGGER fail_cancel');
   const state = await f.ledger.command(input),
     expected = structuredClone(before.state);
   expected.batches.find((batch) => batch.id === targetId).active = false;

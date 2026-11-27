@@ -103,7 +103,7 @@ test(
       assert.match(result.stderr, /synthetic stderr/);
       fs.unlinkSync(path.join(f.root, 'main.txt'));
       assert.equal(
-        fs.existsSync(path.join(f.root, 'trial-data')),
+        fs.existsSync(path.join(f.root, '数据')),
         false,
         'Diagnostics must not create a ledger root for the fixture',
       );
@@ -195,7 +195,7 @@ test(
         }
         fs.unlinkSync(path.join(f.root, 'main.txt'));
         assert.equal(
-          fs.existsSync(path.join(f.root, 'trial-data')),
+          fs.existsSync(path.join(f.root, '数据')),
           false,
           'Diagnostics must not create a ledger root for the fixture',
         );

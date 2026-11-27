@@ -11,7 +11,6 @@ const expenses: Expense[] = [
     category: '接待',
     merchant: '合成餐厅',
     amount: 10000,
-    invoice: 0,
     note: '',
   },
   {
@@ -20,7 +19,6 @@ const expenses: Expense[] = [
     category: '办公',
     merchant: '合成用品',
     amount: 8000,
-    invoice: 0,
     note: '',
   },
   {
@@ -29,7 +27,6 @@ const expenses: Expense[] = [
     category: '办公',
     merchant: '合成已报销',
     amount: 2000,
-    invoice: 0,
     note: '',
   },
 ];

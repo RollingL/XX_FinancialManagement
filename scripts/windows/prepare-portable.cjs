@@ -30,13 +30,11 @@ function launchScript(id, probe = false) {
     'set "ELECTRON_ENABLE_LOGGING=1"',
     'set "ELECTRON_LOG_FILE=%LOG_DIR%\\chromium.log"',
     'set "ELECTRON_ENABLE_STACK_DUMPING=1"',
-    'set "XX_FINANCE_STARTUP_DIAGNOSTICS=1"',
+    'set "QIANLAI_STARTUP_DIAGNOSTICS=1"',
     `>"%LOG_DIR%\\status.txt" echo Build=${id}`,
     '>>"%LOG_DIR%\\status.txt" echo Started=%DATE% %TIME%',
     'ver >>"%LOG_DIR%\\status.txt"',
     '"%SystemRoot%\\System32\\tasklist.exe" /fi "IMAGENAME eq qianlai-app.exe" /fo list >"%LOG_DIR%\\processes-before.txt" 2>&1',
-    'if exist "%~dp0trial-data\\user-data\\stage0-trial\\.writer-lock" (>>"%LOG_DIR%\\status.txt" echo AnchorLock=present) else (>>"%LOG_DIR%\\status.txt" echo AnchorLock=absent)',
-    'for /d %%D in ("%~dp0trial-data\\user-data\\restored-*") do if exist "%%D\\.writer-lock" >>"%LOG_DIR%\\status.txt" echo RestoredLock=%%~nxD',
     'echo Diagnostic mode only. For daily use, double-click Qianlai.exe.',
     'echo Diagnostic folder: "%LOG_DIR%"',
     // Batch files wait for GUI executables. Direct invocation preserves redirected
@@ -46,12 +44,10 @@ function launchScript(id, probe = false) {
     '>>"%LOG_DIR%\\status.txt" echo ExitCode=%LAUNCH_EXIT%',
     '>>"%LOG_DIR%\\status.txt" echo Ended=%DATE% %TIME%',
     '"%SystemRoot%\\System32\\tasklist.exe" /fi "IMAGENAME eq qianlai-app.exe" /fo list >"%LOG_DIR%\\processes-after.txt" 2>&1',
-    'if exist "%~dp0trial-data\\user-data\\stage0-trial\\.writer-lock" (>>"%LOG_DIR%\\status.txt" echo AnchorLock=present) else (>>"%LOG_DIR%\\status.txt" echo AnchorLock=absent)',
-    'for /d %%D in ("%~dp0trial-data\\user-data\\restored-*") do if exist "%%D\\.writer-lock" >>"%LOG_DIR%\\status.txt" echo RestoredLock=%%~nxD',
     'if not "%LAUNCH_EXIT%"=="0" goto :runtime_failed',
     probe
       ? 'echo Runtime check completed. Keep this diagnostic folder for review.'
-      : 'echo Closed. Your data is preserved in trial-data.',
+      : 'echo Closed. Your data stays in this folder.',
     'echo Logs: "%LOG_DIR%"',
     'pause',
     'exit /b 0',
@@ -59,7 +55,7 @@ function launchScript(id, probe = false) {
     'echo Qianlai stopped. Exit code: %LAUNCH_EXIT%',
     'type "%LOG_DIR%\\stderr.txt"',
     'echo Logs: "%LOG_DIR%"',
-    'echo Do not delete data or locks, or disable security software.',
+    'echo Do not delete any folder here, or disable security software.',
     'pause',
     'exit /b %LAUNCH_EXIT%',
     ':failed',
@@ -110,33 +106,23 @@ function verifyInventory(root, manifest) {
     [...names].sort(),
   );
 }
+// The probe checks SQLite in a temporary folder of its own; it never opens a ledger.
 function probePackage(app, launcher) {
-  const isolated = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-win-build-probe-'));
-  try {
-    const env = {
-      ...process.env,
-      XX_FINANCE_MANAGED_TRIAL: '1',
-      XX_FINANCE_USER_DATA_DIR: isolated,
-      XX_FINANCE_DATA_DIR: path.join(isolated, 'ledger'),
-      XX_FINANCE_BACKUP_DIR: path.join(isolated, 'backups'),
-      PATH: path.join(process.env.SystemRoot, 'System32'),
-    };
-    delete env.ELECTRON_RUN_AS_NODE;
-    const output = execFileSync(launcher || path.join(app, 'qianlai-app.exe'), ['--probe'], {
-      env,
-      encoding: 'utf8',
-      maxBuffer: 4 * 1024 * 1024,
-      windowsHide: true,
-    });
-    const report = JSON.parse(output);
-    assert.equal(report.packaged, true);
-    assert.equal(report.sqlite?.status, 'passed');
-    assert.equal(report.sqlite?.platform, 'win32');
-    assert.equal(report.sqlite?.arch, 'x64');
-    return report;
-  } finally {
-    fs.rmSync(isolated, { recursive: true, force: true });
-  }
+  const env = { ...process.env, PATH: path.join(process.env.SystemRoot, 'System32') };
+  for (const key of Object.keys(env))
+    if (key.startsWith('QIANLAI_') || key === 'ELECTRON_RUN_AS_NODE') delete env[key];
+  const output = execFileSync(launcher || path.join(app, 'qianlai-app.exe'), ['--probe'], {
+    env,
+    encoding: 'utf8',
+    maxBuffer: 4 * 1024 * 1024,
+    windowsHide: true,
+  });
+  const report = JSON.parse(output);
+  assert.equal(report.packaged, true);
+  assert.equal(report.sqlite?.status, 'passed');
+  assert.equal(report.sqlite?.platform, 'win32');
+  assert.equal(report.sqlite?.arch, 'x64');
+  return report;
 }
 async function prepare() {
   assert.equal(
@@ -238,7 +224,8 @@ async function prepare() {
     size: fs.statSync(file).size,
     sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
   }));
-  assert.ok(!manifest.some((item) => /(^|\/)trial-data\//.test(item.file)));
+  // The package never contains a ledger, backups or runtime files.
+  assert.ok(!manifest.some((item) => /^(?:数据|备份|运行记录)\//.test(item.file)));
   fs.writeFileSync(path.join(destination, 'file-hashes.json'), JSON.stringify(manifest, null, 2));
   console.log(destination);
 }

@@ -75,7 +75,7 @@ try {
     Invoke-Native -File $npm -Arguments @('--version')
     Invoke-Native -File $npm -Arguments @('ci', '--ignore-scripts', '--no-audit', '--no-fund')
 
-    # Electron 44.7 exposes this explicit installer; no dependency lifecycle scripts run.
+    # Electron 44 exposes this explicit installer; no dependency lifecycle scripts run.
     Assert-RegularFile (Join-Path $workspace 'node_modules/electron/install.js')
     Assert-RegularFile (Join-Path $workspace 'node_modules/electron/checksums.json')
     $env:ELECTRON_INSTALL_PLATFORM = 'win32'
@@ -124,8 +124,8 @@ try {
 
     Invoke-Native -File $node -Arguments @('--test', 'tests/windows-package-check.test.cjs', 'tests/electron-main.test.cjs',
         'tests/windows-portable.test.cjs', 'tests/image-check.test.cjs', 'tests/expense-export.test.ts', 'tests/expense-download.test.ts',
-        'tests/windows-runtime.test.cjs', 'tests/ledger-lock.test.cjs', 'tests/managed-restore.test.cjs',
-        'tests/record-backup.test.cjs', 'tests/record-crud.test.cjs', 'tests/invoice-reminder.test.cjs', 'tests/ledger-backup.test.cjs')
+        'tests/app-paths.test.cjs', 'tests/ledger-schema.test.cjs', 'tests/ledger-service.test.cjs',
+        'tests/ledger-backup.test.cjs', 'tests/record-crud.test.cjs', 'tests/invoice-reminder.test.cjs')
     Invoke-Native -File $node -Arguments @('-e', 'require("./scripts/windows/package-check.cjs").checkWindowsPackage(process.cwd(),"x64");console.log("Windows package inputs checked; target acceptance is still pending")')
     Invoke-Native -File $npm -Arguments @('run', 'package', '--', '--platform=win32', '--arch=x64')
     Invoke-Native -File $node -Arguments @('scripts/windows/prepare-portable.cjs')

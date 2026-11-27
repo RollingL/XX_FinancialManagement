@@ -1,38 +1,15 @@
+// Recording company advances: whole cents, separate business date and save time,
+// one record per request, and nothing half-saved.
 const test = require('node:test'),
   assert = require('node:assert/strict');
-const fs = require('node:fs'),
-  os = require('node:os'),
-  path = require('node:path'),
-  { randomUUID } = require('node:crypto');
-const Database = require('better-sqlite3');
-const { createLedger } = require('../src/main/ledger.cjs');
-function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-advance-test-'));
-  let ledger = createLedger(root);
-  t.after(() => {
-    ledger.close();
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  return {
-    root,
-    get ledger() {
-      return ledger;
-    },
-    reopen() {
-      ledger.close();
-      ledger = createLedger(root);
-    },
-    db() {
-      return new Database(path.join(root, 'trial.sqlite'));
-    },
-  };
-}
+const { randomUUID } = require('node:crypto');
+const { ledgerFixture, read } = require('./ledger-fixture.cjs');
+const fixture = (t) => ledgerFixture(t, 'qianlai-advance-');
 const advance = (amount = 1, extra = {}) => ({
   kind: 'advance',
   requestId: randomUUID(),
   advance: { amount, date: '2026-10-12', ...extra },
 });
-const read = (f) => f.ledger.command({ kind: 'read' });
 const cash = (s) => ({
   advances: s.advances,
   advanceDetails: s.advanceDetails,
@@ -64,14 +41,9 @@ test('advance stores integer cents, optional note, separate dates and idempotent
   f.reopen();
   assert.deepEqual(await read(f), state);
   assert.deepEqual(await f.ledger.command(input), state);
-  const db = f.db();
-  try {
-    assert.deepEqual(db.prepare('SELECT kind,created_at FROM operations').all(), [
-      { kind: 'advance', created_at: state.advanceDetails[0].createdAt },
-    ]);
-  } finally {
-    db.close();
-  }
+  assert.deepEqual(f.db.prepare('SELECT kind, created_at FROM operations').all(), [
+    { kind: 'advance', created_at: state.advanceDetails[0].createdAt },
+  ]);
 });
 test('advance backend rejects invalid cents, date and note without any state or operation', async (t) => {
   const f = fixture(t),
@@ -87,12 +59,7 @@ test('advance backend rejects invalid cents, date and note without any state or 
   ])
     await assert.rejects(f.ledger.command(advance(1, extra)));
   assert.deepEqual(await read(f), before);
-  const db = f.db();
-  try {
-    assert.equal(db.prepare('SELECT count(*) n FROM operations').get().n, 0);
-  } finally {
-    db.close();
-  }
+  assert.deepEqual(f.operations(), []);
 });
 test('advance cumulative limit accepts last safe cent and rejects overflow atomically', async (t) => {
   const f = fixture(t);
@@ -101,43 +68,17 @@ test('advance cumulative limit accepts last safe cent and rejects overflow atomi
   await assert.rejects(f.ledger.command(advance(1)), /合计超出安全范围/);
   assert.deepEqual(await read(f), before);
 });
-test('legacy amount-only entries read without rewriting; append preserves all history without invented dates', async (t) => {
-  const f = fixture(t),
-    legacy = { expenses: [], batches: [], advances: [300000, 1], legacyMarker: 'synthetic' };
-  const raw = JSON.stringify(legacy);
-  let db = f.db();
-  db.prepare('UPDATE trial_state SET json=? WHERE id=1').run(raw);
-  db.close();
-  f.reopen();
-  assert.deepEqual(await read(f), legacy);
-  db = f.db();
-  assert.equal(db.prepare('SELECT json FROM trial_state').get().json, raw);
-  db.close();
-  const state = await f.ledger.command(advance(20000, { note: ' 合成补充款 ' }));
-  assert.deepEqual(state.advances, [300000, 1, 20000]);
-  assert.equal(state.legacyMarker, 'synthetic');
-  assert.equal(state.advanceDetails[0], undefined);
-  assert.equal(state.advanceDetails[1], undefined);
-  assert.equal(state.advanceDetails[2].note, '合成补充款');
-  assert.equal(cash(state).balance, 320001);
-  f.reopen();
-  assert.deepEqual(await read(f), state);
-});
 test('failure after state update rolls back amount, metadata and operation; same request can retry', async (t) => {
   const f = fixture(t),
     before = await read(f),
     input = advance(10000);
-  let db = f.db();
-  db.exec(
+  f.sql(
     "CREATE TRIGGER fail_advance BEFORE INSERT ON operations WHEN NEW.kind='advance' BEGIN SELECT RAISE(ABORT,'synthetic failure'); END",
   );
-  db.close();
   await assert.rejects(f.ledger.command(input), /synthetic failure/);
   assert.deepEqual(await read(f), before);
-  db = f.db();
-  assert.equal(db.prepare('SELECT count(*) n FROM operations').get().n, 0);
-  db.exec('DROP TRIGGER fail_advance');
-  db.close();
+  assert.deepEqual(f.operations(), []);
+  f.sql('DROP TRIGGER fail_advance');
   const after = await f.ledger.command(input);
   assert.deepEqual(after.advances, [10000]);
   assert.deepEqual(await f.ledger.command(input), after);

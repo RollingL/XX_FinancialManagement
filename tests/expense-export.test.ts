@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Batch, Expense } from '../src/renderer/model.ts';
-import type { Invoice, LedgerState } from '../src/renderer/ledger.ts';
+import type { LedgerState } from '../src/renderer/ledger.ts';
 import { balance } from '../src/renderer/model.ts';
 import { paginate } from '../src/renderer/records.ts';
 import {
@@ -19,7 +19,6 @@ const expense = (id: number, changes: Partial<Expense> = {}): Expense => ({
   merchant: `合成商户 ${id}`,
   note: '合成备注',
   amount: 10001,
-  invoice: 0,
   ...changes,
 });
 const ledger = (changes: Partial<LedgerState> = {}): LedgerState => ({
@@ -35,21 +34,6 @@ const filters = (changes: Partial<ExpenseFilters> = {}): ExpenseFilters => ({
   startDate: '',
   endDate: '',
   ...changes,
-});
-const invoice = (id: number, allocations: Invoice['allocations']): Invoice => ({
-  id,
-  identityType: 'number',
-  number: `SYNTHETIC-${id}`,
-  code: '',
-  date: '2026-10-12',
-  seller: '合成销方',
-  buyer: '',
-  amount: 30000,
-  note: '',
-  attachmentIds: [`synthetic-${id}`],
-  allocations,
-  revision: 1,
-  createdAt: '2026-10-12T00:00:00.000Z',
 });
 const header =
   '"费用编号","实际支出日期","费用类别","商户/采购摘要","备注","支出金额（元）","已报销金额（元）","待报销金额（元）","报销状态"';
@@ -70,7 +54,6 @@ test('filtering spans all pages and combines category, merchant/note/id search, 
         ],
       },
     ],
-    invoices: [invoice(1, [{ expenseId: 12, amount: 10001 }])],
   });
   const all = filterExpenses(state, filters());
   assert.equal(all.length, 14);
@@ -143,7 +126,7 @@ test('invalid dates and reversed ranges report errors and fail closed without hi
   assert.equal(expenseFilterError(filters()), '');
 });
 
-test('reimbursement statuses use only active allocations and stay independent of invoice associations', () => {
+test('reimbursement statuses use only active allocations', () => {
   const batches: Batch[] = [
     {
       id: 1,
@@ -164,7 +147,7 @@ test('reimbursement statuses use only active allocations and stay independent of
       ],
     },
   ];
-  const state = ledger({ batches, invoices: [invoice(1, [{ expenseId: 1, amount: 10001 }])] });
+  const state = ledger({ batches });
   assert.deepEqual(
     state.expenses.map((row) => expenseStatus(row, batches)),
     ['未报销', '部分报销', '已报销'],
@@ -185,15 +168,13 @@ test('reimbursement statuses use only active allocations and stay independent of
   assert.ok(lines[3].includes(',100.01,100.01,0.00,"已报销"'));
 });
 
-test('reminder and legacy invoice metadata never change filtering, CSV, statuses or totals', () => {
+test('the invoice reminder never changes filtering, CSV, statuses or totals', () => {
   const state = ledger(),
     before = expenseCsv(state, state.expenses),
     ids = filterExpenses(state, filters()).map((e) => e.id),
     funds = balance(state.expenses, state.advances);
   state.expenses[0].invoiceIssued = true;
   state.expenses[1].invoiceIssued = false;
-  state.expenses[2].invoice = 1;
-  state.invoices = [invoice(1, [{ expenseId: 1, amount: 1 }])];
   assert.equal(expenseCsv(state, state.expenses), before);
   assert.deepEqual(
     filterExpenses(state, filters()).map((e) => e.id),
@@ -205,7 +186,7 @@ test('reminder and legacy invoice metadata never change filtering, CSV, statuses
 
 test('CSV contains the fixed whitelist with BOM, CRLF, quoted text and exact integer-cent values without grouping', () => {
   const state = ledger({
-    expenses: [expense(Number.MAX_SAFE_INTEGER, { amount: Number.MAX_SAFE_INTEGER, invoice: 1 })],
+    expenses: [expense(Number.MAX_SAFE_INTEGER, { amount: Number.MAX_SAFE_INTEGER })],
     batches: [
       {
         id: 1,
@@ -303,7 +284,6 @@ test('trusted numeric output never receives the text formula prefix, including a
 test('empty export keeps only the fixed header and filter/export leave all ledger facts and ordering unchanged', () => {
   const state = ledger({
     expenses: [expense(3), expense(1), expense(2)],
-    invoices: [invoice(1, [{ expenseId: 2, amount: 1 }])],
   });
   const before = structuredClone(state),
     originalBalance = balance(state.expenses, state.advances),

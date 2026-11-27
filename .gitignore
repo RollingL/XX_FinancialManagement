@@ -54,6 +54,11 @@
 attachments/
 backups/
 backup/
+数据/
+备份/
+运行记录/
+截图/
+截图库/
 evidence/
 *.sqlite*
 *.db

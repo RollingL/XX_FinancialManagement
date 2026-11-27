@@ -111,3 +111,54 @@ test('HTTP transport retains source protections and the old token after a failed
   assert.deepEqual(inputs[1], inputs[2]);
   assert.equal(inputs[1].generation, 'old-http-generation');
 });
+
+test('desktop refusals show only the reason, without the bridge wording', async (t) => {
+  const command = await client(t, async (input) => {
+    if (input.kind === 'read') return empty('generation-one');
+    throw Error("Error invoking remote method 'ledger:command': Error: 金额必须大于 0");
+  });
+  await command({ kind: 'read' });
+  await assert.rejects(command({ kind: 'expense', requestId: 'synthetic' }), (error: Error) => {
+    assert.equal(error.message, '金额必须大于 0');
+    return true;
+  });
+  const { plainMessage } = await import('../src/renderer/ledger.ts');
+  assert.equal(plainMessage(Error('普通原因')), '普通原因');
+  assert.equal(plainMessage(Error("Error invoking remote method 'x': ")), '本地读写失败，请重试');
+});
+
+test('a save refused as out of date reads the ledger again and says so instead of asking to refresh', async (t) => {
+  const seen: string[] = [];
+  let reads = 0,
+    last: any;
+  await client(t, async (input) => {
+    seen.push(input.kind);
+    last = input;
+    if (input.kind === 'read') return empty(`generation-${++reads}`);
+    if (input.kind === 'expense') throw Error('金额必须大于 0');
+    throw Error(
+      "Error invoking remote method 'ledger:command': Error: 费用已变化，请刷新后重新核对",
+    );
+  });
+  const ledger = await import(`../src/renderer/ledger.ts?case=${Math.random()}`);
+  const reloaded: any[] = [];
+  const stop = ledger.onLedgerReloaded((state: any) => reloaded.push(state));
+  await ledger.ledgerCommand({ kind: 'read' });
+  await assert.rejects(
+    ledger.ledgerCommand({ kind: 'correct-expense', requestId: 'synthetic' }),
+    (error: Error) => {
+      assert.equal(error.message, '费用已变化。已重新读取最新账本，请核对后再保存。');
+      return true;
+    },
+  );
+  assert.deepEqual(seen, ['read', 'correct-expense', 'read']);
+  assert.deepEqual(reloaded, [empty('generation-2')]);
+  // The next save carries the generation that was just read.
+  await assert.rejects(ledger.ledgerCommand({ kind: 'expense', requestId: 'next' }), /金额/);
+  assert.equal(last.generation, 'generation-2');
+  // Other refusals are passed on as they are, without reading again.
+  assert.equal(seen.filter((kind) => kind === 'read').length, 2);
+  stop();
+  await assert.rejects(ledger.ledgerCommand({ kind: 'correct-expense', requestId: 'x' }));
+  assert.equal(reloaded.length, 1, 'a stopped listener is not told again');
+});

@@ -10,17 +10,22 @@ import { runInNewContext } from 'node:vm';
 import { rolldown } from 'rolldown';
 import { balance } from '../src/renderer/model.ts';
 const require = createRequire(import.meta.url);
-const { createLedger } = require('../src/main/ledger.cjs');
+const { openLedger } = require('../src/main/ledger.cjs');
 // Compile the actual App only in memory; use its handlers with a fresh synthetic SQLite ledger.
+// The reimbursement form lives in its own file, so it is compiled in with the App.
+const compiledIn = /[\\/]ReimburseForm\.tsx$/;
 const build = await rolldown({
   input: fileURLToPath(new URL('../src/renderer/main.tsx', import.meta.url)),
-  external: () => true,
+  external: (id: string) => !compiledIn.test(id),
 });
 const compiled = await build.generate({ format: 'cjs' });
 await build.close();
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 type Element = { type: any; props: any };
+// Components compiled in (the form, without hooks of its own) are drawn in place.
+const drawn = (value: any) => (typeof value?.type === 'function' ? value.type(value.props) : value);
 function elements(value: any): Element[] {
+  value = drawn(value);
   return Array.isArray(value)
     ? value.flatMap(elements)
     : value?.props
@@ -28,6 +33,7 @@ function elements(value: any): Element[] {
       : [];
 }
 function text(value: any): string {
+  value = drawn(value);
   return Array.isArray(value)
     ? value.map(text).join('')
     : value?.props
@@ -62,7 +68,7 @@ async function fixture(
   transport?: (request: any, send: (request: any) => Promise<any>) => Promise<any>,
 ) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-batch-retry-')),
-    ledger = createLedger(root);
+    ledger = openLedger(root);
   t.after(() => {
     ledger.close();
     fs.rmSync(root, { recursive: true, force: true });
@@ -127,6 +133,7 @@ async function fixture(
       }),
     },
     './ledger.ts': {
+      onLedgerReloaded: () => () => {},
       ledgerCommand: async (request: any) => {
         const copy = structuredClone(request);
         if (copy.kind !== 'batch') return send(copy);

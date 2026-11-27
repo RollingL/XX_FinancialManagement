@@ -22,7 +22,6 @@ const expense = (extra: Partial<Expense> = {}): Expense => ({
   category: '接待',
   merchant: '合成餐厅',
   amount: 12345,
-  invoice: 0,
   note: '合成测试',
   attachmentId: 'synthetic-attachment',
   ...extra,
@@ -64,9 +63,9 @@ test('legacy expense without audit metadata is eligible at revision zero and sna
   assert.equal(session.expected.note, '合成测试');
 });
 
-test('invoice and inactive or active reimbursement history allow opening editor', () => {
+test('inactive or active reimbursement history allows opening the editor', () => {
   for (const active of [true, false]) {
-    const state = ledger({ batches: [batch(active)], expenses: [expense({ invoice: 1 })] });
+    const state = ledger({ batches: [batch(active)], expenses: [expense()] });
     assert.equal(correctionRestriction(state.expenses[0], state), null);
     assert.deepEqual(correctionSession(state, state.expenses[0]).expected, state.expenses[0]);
   }

@@ -1,38 +1,11 @@
+// Deleting a reimbursement batch: its allocations stop counting, the audit trail keeps a
+// full copy, money never changes and batch numbers are never reused.
 const test = require('node:test'),
   assert = require('node:assert/strict');
-const fs = require('node:fs'),
-  os = require('node:os'),
-  path = require('node:path'),
-  { randomUUID } = require('node:crypto');
-const Database = require('better-sqlite3');
-const { createLedger } = require('../src/main/ledger.cjs');
+const { randomUUID } = require('node:crypto');
+const { ledgerFixture, read } = require('./ledger-fixture.cjs');
 
-function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-batch-delete-'));
-  let ledger = createLedger(root);
-  t.after(() => {
-    ledger.close();
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  return {
-    get ledger() {
-      return ledger;
-    },
-    reopen() {
-      ledger.close();
-      ledger = createLedger(root);
-    },
-    db(fn) {
-      const db = new Database(path.join(root, 'trial.sqlite'));
-      try {
-        return fn(db);
-      } finally {
-        db.close();
-      }
-    },
-  };
-}
-const read = (f) => f.ledger.command({ kind: 'read' });
+const fixture = (t) => ledgerFixture(t, 'qianlai-batch-delete-');
 const action = (kind, id = 1, requestId = randomUUID()) => ({ kind, requestId, id });
 const newBatch = (allocations = [{ expenseId: 2, amount: 1 }]) => ({
   kind: 'batch',
@@ -66,23 +39,13 @@ const funds = (state) => ({
     state.advances.reduce((sum, amount) => sum + amount, 0) -
     state.expenses.reduce((sum, expense) => sum + expense.amount, 0),
 });
+// The whole ledger: the screen state, every stored row except the request log, and the log.
 async function snapshot(f) {
-  return {
-    state: await read(f),
-    ...f.db((db) => ({
-      raw: db.prepare('SELECT json FROM trial_state WHERE id=1').get().json,
-      operations: db.prepare('SELECT * FROM operations ORDER BY id').all(),
-      attachments: db.prepare('SELECT * FROM attachments ORDER BY id').all(),
-    })),
-  };
-}
-function replaceSyntheticState(f, state) {
-  f.db((db) =>
-    db.prepare('UPDATE trial_state SET json=? WHERE id=1').run(JSON.stringify(state, null, 2)),
-  );
+  const { operations, ...rows } = f.rows();
+  return { state: await read(f), rows, operations: f.operations() };
 }
 async function seed(f) {
-  // Explicit synthetic facts in a new temporary ledger, never an existing trial ledger.
+  // Explicit synthetic facts in a new temporary ledger, never an existing ledger.
   for (const [amount, note] of [
     [25000, '合成预支'],
     [1, '合成一分补款'],
@@ -141,20 +104,16 @@ function assertEvent(f, event, input, before) {
     after: null,
   });
   assert.ok(Number.isFinite(Date.parse(event.at)));
-  const operation = f.db((db) =>
-    db.prepare('SELECT * FROM operations WHERE id=?').get(input.requestId),
-  );
+  const operation = f.db
+    .prepare('SELECT * FROM operations WHERE request_id = ?')
+    .get(input.requestId);
   assert.equal(operation.kind, 'delete-batch');
   assert.equal(operation.created_at, event.at);
 }
 
 test('delete removes the active batch and all its allocations while retaining a complete audit snapshot and funds', async (t) => {
   const f = fixture(t);
-  const old = await seed(f);
-  old.batches[0].legacyNote = { text: '合成旧字段', tags: ['保留'] };
-  old.legacyMarker = '合成账本字段';
-  replaceSyntheticState(f, old);
-  const before = await read(f),
+  const before = await seed(f),
     input = action('delete-batch'),
     after = await f.ledger.command(input),
     expected = structuredClone(before);
@@ -246,29 +205,6 @@ test('another delete request or cancellation for an already removed batch reject
   }
 });
 
-test('legacy reads preserve original JSON with no backfill, migration or audit array until an actual deletion', async (t) => {
-  const f = fixture(t),
-    legacy = await seed(f);
-  legacy.legacyMarker = { note: '合成旧版账本' };
-  replaceSyntheticState(f, legacy);
-  const before = await snapshot(f);
-  assert.equal(Object.hasOwn(legacy, 'batchEvents'), false);
-  f.reopen();
-  assert.deepEqual(await snapshot(f), before);
-  const state = await f.ledger.command(newBatch());
-  assert.equal(state.batches.at(-1).id, 4);
-  assert.equal(Object.hasOwn(state, 'batchEvents'), false);
-  assert.deepEqual(state.legacyMarker, legacy.legacyMarker);
-  assert.deepEqual(
-    f
-      .db((db) =>
-        db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all(),
-      )
-      .map((row) => row.name),
-    ['attachments', 'operations', 'trial_state'],
-  );
-});
-
 test('illegal IDs, missing batches and restore commands reject without creating state, history or operations', async (t) => {
   const f = fixture(t);
   await seed(f);
@@ -288,16 +224,14 @@ test('operation insertion failure rolls back batch removal and audit together; t
   await seed(f);
   const before = await snapshot(f),
     input = action('delete-batch');
-  f.db((db) =>
-    db.exec(
-      "CREATE TRIGGER fail_batch_event BEFORE INSERT ON operations WHEN NEW.kind='delete-batch' BEGIN SELECT RAISE(ABORT,'synthetic audit transaction failure'); END",
-    ),
+  f.sql(
+    "CREATE TRIGGER fail_batch_event BEFORE INSERT ON operations WHEN NEW.kind='delete-batch' BEGIN SELECT RAISE(ABORT,'synthetic audit transaction failure'); END",
   );
   await assert.rejects(f.ledger.command(input), /synthetic audit transaction failure/);
   assert.deepEqual(await snapshot(f), before);
   f.reopen();
   assert.deepEqual(await snapshot(f), before);
-  f.db((db) => db.exec('DROP TRIGGER fail_batch_event'));
+  f.sql('DROP TRIGGER fail_batch_event');
   const state = await f.ledger.command(input),
     saved = await snapshot(f),
     expected = structuredClone(before.state);
@@ -335,10 +269,13 @@ test('deleted highest IDs are never reused and an old delete request cannot targ
 });
 
 test('batch IDs reject overflow both from current records and deleted-history high water mark', async (t) => {
-  const f = fixture(t),
-    state = await seed(f);
-  state.batches[2].id = Number.MAX_SAFE_INTEGER;
-  replaceSyntheticState(f, state);
+  const f = fixture(t);
+  await seed(f);
+  // A synthetic batch with the largest safe number, inserted directly.
+  f.sql(`INSERT INTO batches (id, date, created_at)
+    VALUES (${Number.MAX_SAFE_INTEGER}, '2026-10-06', '2026-10-06T00:00:00.000Z');
+    INSERT INTO allocations (batch_id, position, expense_id, amount)
+    VALUES (${Number.MAX_SAFE_INTEGER}, 0, 3, 1)`);
   const before = await snapshot(f);
   await assert.rejects(f.ledger.command(newBatch()), /批次编号超出安全范围/);
   assert.deepEqual(await snapshot(f), before);
@@ -349,11 +286,11 @@ test('batch IDs reject overflow both from current records and deleted-history hi
   assert.deepEqual(await snapshot(f), removed);
 });
 
-test('audit snapshots stay immutable and malformed existing history is rejected rather than overwritten', async (t) => {
+test('audit snapshots stay unchanged when later batches are deleted', async (t) => {
   const f = fixture(t),
     initial = await seed(f);
   let earlier = [];
-  for (const id of [1, 2]) {
+  for (const id of [1, 2, 3]) {
     const before = await read(f),
       input = action('delete-batch', id),
       after = await f.ledger.command(input);
@@ -367,14 +304,6 @@ test('audit snapshots stay immutable and malformed existing history is rejected 
     earlier = structuredClone(after.batchEvents);
     assert.deepEqual(funds(after), funds(initial));
   }
-  for (const invalidHistory of [null, false, { synthetic: 'invalid history' }]) {
-    const invalid = await read(f);
-    invalid.batchEvents = invalidHistory;
-    replaceSyntheticState(f, invalid);
-    const before = await snapshot(f);
-    await assert.rejects(f.ledger.command(action('delete-batch', 3)), /现有批次操作历史无效/);
-    assert.deepEqual(await snapshot(f), before);
-    await assert.rejects(f.ledger.command(newBatch()), /现有批次操作历史无效/);
-    assert.deepEqual(await snapshot(f), before);
-  }
+  f.reopen();
+  assert.deepEqual((await read(f)).batchEvents, earlier);
 });

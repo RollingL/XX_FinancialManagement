@@ -19,52 +19,46 @@ npm run check           # 一次跑完下面三项（和 PR 自动检查一样�
 npm run format:check    # 检查代码格式（Prettier）
 npm run build           # TypeScript 类型检查 + 打包网页到 dist/
 npm test                # 全部测试（tests/*.test.ts 和 tests/*.test.cjs）
+npm run test:desktop    # 构建后启动真实桌面版，像用户一样点界面（tests/desktop.e2e.cjs）
 
 npm run format          # 自动整理代码格式
 npm run test:coverage   # 跑测试并列出哪些代码还没被测试覆盖
 node --test tests/model.test.ts   # 只跑某一个测试文件
 ```
 
-预期结果（2026-11-27，Linux + Node 22）：格式检查通过；构建通过；测试 281 项通过、5 项跳过（Windows 专用）。
+预期结果（2026-11-27 界面改进后，Linux + Node 22）：格式检查通过；构建通过；测试 238 项通过、5 项跳过（Windows 专用）；`xvfb-run -a npm run test:desktop` 2 项通过。
+
+`test:desktop` 需要显示器：Mac 上直接运行，Linux 云端要在前面加 `xvfb-run -a`（虚拟显示器）。设置环境变量 `QIANLAI_E2E_SHOTS=<仓库外的文件夹>` 会把过程截图存下来，方便肉眼检查。
 
 ### PR 自动检查
 
-每个 PR 和每次合并到 `main`，GitHub 都会自动跑 `.github/workflows/ci.yml`：在 Ubuntu 上 `npm ci` → 格式检查 → 构建 → 全部测试。PR 页面底部会显示通过（绿勾）或失败（红叉）。失败时点进去看是哪一步，修好再推送即可。这项检查只在 Linux 上跑，**不代表** Windows 也通过。
+每个 PR 和每次合并到 `main`，GitHub 都会自动跑 `.github/workflows/ci.yml` 里的两项检查：
+
+- **check**：在 Ubuntu 上 `npm ci` → 格式检查 → 构建 → 全部测试。
+- **desktop**：在 Ubuntu 上用虚拟显示器启动真实桌面版，跑 `tests/desktop.e2e.cjs`（记账、报销、开票、备份、U 盘备份、恢复、导入、清空、搬文件夹）。失败时会把过程截图作为附件上传（保留 7 天），在该次运行页面下载。
+
+PR 页面底部会显示通过（绿勾）或失败（红叉）。失败时点进去看是哪一步，修好再推送即可。这两项检查只在 Linux 上跑，**不代表** Windows 也通过。
 
 ## 3. 本地运行
 
-**永远用一个新的临时数据目录**，不要碰真实账本。
+**永远用一个新的临时文件夹**，不要碰真实账本。程序把这个文件夹当作“钱来文件夹”，在里面建 `数据`、`备份`（桌面版还有 `运行记录`），结构见 [ARCHITECTURE 第 2 节](ARCHITECTURE.md#2-钱来文件夹数据和程序放在一起)。用环境变量 `QIANLAI_HOME`（绝对路径）指定它；不指定时用项目里的 `.local-data/`（已被 Git 忽略）。
 
 ### 浏览器开发（最快）
 
 ```sh
 lsof -nP -iTCP:5173 -sTCP:LISTEN     # 先确认 5173 端口空闲
-qianlai_dev_root=$(mktemp -d "${TMPDIR:-/tmp}/qianlai-dev.XXXXXX")
-XX_FINANCE_DATA_DIR="$qianlai_dev_root/ledger" npm run dev
+QIANLAI_HOME=$(mktemp -d "${TMPDIR:-/tmp}/qianlai-dev.XXXXXX") npm run dev
 ```
 
-打开 http://127.0.0.1:5173/ 。端口固定为 5173：本机接口只接受这个地址发来的请求，所以不能用 `--port` 换端口。这种方式是普通模式，备份页的功能不可用。
-
-想在浏览器里试备份、恢复、清空，用受管模式：
-
-```sh
-root=$(mktemp -d "${TMPDIR:-/tmp}/qianlai-dev.XXXXXX"); mkdir "$root/backups"
-XX_FINANCE_MANAGED_TRIAL=1 XX_FINANCE_DATA_DIR="$root/ledger" XX_FINANCE_BACKUP_DIR="$root/backups" npm run dev
-```
+打开 http://127.0.0.1:5173/ 。端口固定为 5173：本机接口只接受这个地址发来的请求，所以不能用 `--port` 换端口。备份、恢复、清空在浏览器里也能用；“从其他文件夹恢复或导入”在浏览器里是输入文件夹路径（桌面版是弹出选择框）。
 
 ### 桌面版（Electron）开发
 
 ```sh
-root=$(mktemp -d "${TMPDIR:-/tmp}/qianlai-native.XXXXXX")
-mkdir "$root/user-data" "$root/backups"
-XX_FINANCE_MANAGED_TRIAL=1 \
-XX_FINANCE_USER_DATA_DIR="$root/user-data" \
-XX_FINANCE_DATA_DIR="$root/ledger" \
-XX_FINANCE_BACKUP_DIR="$root/backups" \
-npm start
+QIANLAI_HOME=$(mktemp -d "${TMPDIR:-/tmp}/qianlai-native.XXXXXX") npm start
 ```
 
-`user-data` 和 `backups` 要先建好；账本目录由程序自己创建。用同一个 `$root` 再启动一次，可以检查数据是否保留。
+用同一个文件夹再启动一次，可以检查数据是否保留；把整个文件夹复制到别处再用新位置启动，可以检查“复制文件夹搬家”。
 
 试上传截图时，用 `tests/fixtures/` 里的合成图片，不要用真实截图。
 
@@ -92,24 +86,26 @@ Windows 包**只能在 GitHub Actions 上构建**（`scripts/windows/build-porta
 
 ## 5. 界面检查
 
-改了界面后，用临时数据目录启动，再用浏览器自动化工具实际点一遍。Claude 的云端环境自带 Playwright（`require('playwright')`），有两种方式：
+改了界面后，先跑 `npm run test:desktop`（见第 2 节），再用临时数据目录启动，用浏览器自动化工具实际点一遍改动的地方。项目自带 `playwright-core`（开发依赖），Claude 的云端环境也自带 Playwright，有两种方式：
 
 - **浏览器开发模式**：先按第 3 节启动 `npm run dev`，再用 `chromium.launch()` 打开 http://127.0.0.1:5173/ 。
 - **真实桌面版**：在 Linux 云端也能跑 Electron（需要虚拟显示器 `xvfb-run`），这样检查的是和用户一样的程序：
 
 ```js
-// xvfb-run -a node check.cjs
-const { _electron } = require('playwright');
+// xvfb-run -a node check.cjs（在仓库根目录运行）
+const { _electron } = require('playwright-core');
 const app = await _electron.launch({
-  executablePath: 'node_modules/electron/dist/electron',
+  executablePath: require('electron'),
   args: ['.', '--no-sandbox'],
-  env: { ...process.env, XX_FINANCE_MANAGED_TRIAL: '1', XX_FINANCE_USER_DATA_DIR: '<临时目录>/user', XX_FINANCE_DATA_DIR: '<临时目录>/user/ledger', XX_FINANCE_BACKUP_DIR: '<临时目录>/backups' },
+  env: { ...process.env, QIANLAI_HOME: '<临时文件夹的绝对路径>' },
 });
 const page = await app.firstWindow();
 await page.screenshot({ path: 'overview.png' });
 ```
 
 `node_modules/electron/dist` 不存在时，先运行 `node node_modules/electron/install.js` 下载 Electron。
+
+桌面版里“从其他文件夹恢复或导入”和“备份到 U 盘…”会弹出系统的选择文件夹对话框，自动化时可以在主进程里替换它：`await app.evaluate(({ dialog }, folder) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] }); }, '<另一个临时钱来文件夹>')`。
 
 建议至少检查三种窗口大小：1400×920、1024×768、800×600。截图和临时脚本放在 Git 忽略的位置（例如系统临时目录或 `evidence/`），**不要提交**。
 
