@@ -1,5 +1,7 @@
 # 最小费用纠错：实现与验证
 
+> **历史记录（只读）**：本文反映写作当时的情况，其中的“当前”“本轮”“下一步”都指当时。现行规则见 [业务规则](../BUSINESS_RULES.md)，现状见 [STATUS](../STATUS.md)。
+
 后续更新：本报告记录集成轮结果；费用纠错与发票的Mac Electron原生UI／IPC、附件、失败重试、备份恢复及正常重开已另行验证，见[NATIVE_INVOICE_VALIDATION](NATIVE_INVOICE_VALIDATION.md)。下方原生未测项为当轮历史边界，Windows及安装包仍未验证。
 
 日期：2026-10-12。阶段0后续明确授权范围；本轮只使用新建合成目录，未读取、迁移、清空真实账本或既有试用实例。结果仅本地交付，未推送、部署、安装依赖或重新打包。唯一当前状态见 [STAGE0_STATUS](STAGE0_STATUS.md#当前状态)。
@@ -16,7 +18,7 @@
 
 本轮复核发现原写入口接受不符合分段格式的36字符请求ID，而备份会拒绝该记录；现统一为备份已有的UUID格式校验，并验证六类写命令的非法ID无写入。没有增加UUID版本限制或改写旧记录。
 
-主要实现：[后端](../spike/trial-ledger.cjs)、[备份校验](../spike/ledger-backup.cjs)、[客户端规则](../prototype/src/expense-correction.ts)、[纠错表单与审计](../prototype/src/ExpenseCorrection.tsx)、[入口与提交](../prototype/src/main.tsx)。
+主要实现：[后端](../../spike/trial-ledger.cjs)、[备份校验](../../spike/ledger-backup.cjs)、[客户端规则](../../prototype/src/expense-correction.ts)、[纠错表单与审计](../../prototype/src/ExpenseCorrection.tsx)、[入口与提交](../../prototype/src/main.tsx)。
 
 ## 本轮自动检查
 
@@ -24,16 +26,16 @@ Mac arm64，本机既有依赖。实际联合执行下列文件，**85/85通过�
 
 | 文件 | 用例数 | 主要覆盖 |
 | --- | ---: | --- |
-| [expense-correction.test.cjs](../tests/expense-correction.test.cjs) | 14 | 金额差额及完整其他事实不变、附件字节、三种报销历史及票额限制、非法输入与安全整数、双连接过时快照、ABA、独立修订、无变化、幂等重开、操作失败回滚、清空后旧请求拒绝、UUID一致性 |
-| [expense-correction-backup.test.cjs](../tests/expense-correction-backup.test.cjs) | 7 | 多次纠错后再报销、两个新目录恢复与重开、交错修订、后来撤销／删除报销、非法审计及重封哈希拒绝、旧JSON字节兼容 |
-| [expense-correction-ui.test.ts](../tests/expense-correction-ui.test.ts) | 12 | 资格、草稿精度、余额、快照隔离、稳定请求、改草稿新ID及切回复用、历史排序分页 |
-| [ledger-backup.test.cjs](../tests/ledger-backup.test.cjs) | 22 | 既有完整备份、恢复、路径／发布竞态、代际及清空日志校验 |
-| [advance-ledger.test.cjs](../tests/advance-ledger.test.cjs) | 6 | 既有预支及元数据兼容、失败回滚和资金事实 |
-| [batch-cancellation.test.cjs](../tests/batch-cancellation.test.cjs) | 5 | 撤销事务及完整资金不变 |
-| [batch-delete.test.cjs](../tests/batch-delete.test.cjs) | 11 | 删除事务、审计、幂等及完整资金不变 |
-| [model.test.ts](../tests/model.test.ts) | 8 | 金额精度、负余额、分配与汇总边界 |
+| [expense-correction.test.cjs](../../tests/expense-correction.test.cjs) | 14 | 金额差额及完整其他事实不变、附件字节、三种报销历史及票额限制、非法输入与安全整数、双连接过时快照、ABA、独立修订、无变化、幂等重开、操作失败回滚、清空后旧请求拒绝、UUID一致性 |
+| [expense-correction-backup.test.cjs](../../tests/expense-correction-backup.test.cjs) | 7 | 多次纠错后再报销、两个新目录恢复与重开、交错修订、后来撤销／删除报销、非法审计及重封哈希拒绝、旧JSON字节兼容 |
+| [expense-correction-ui.test.ts](../../tests/expense-correction-ui.test.ts) | 12 | 资格、草稿精度、余额、快照隔离、稳定请求、改草稿新ID及切回复用、历史排序分页 |
+| [ledger-backup.test.cjs](../../tests/ledger-backup.test.cjs) | 22 | 既有完整备份、恢复、路径／发布竞态、代际及清空日志校验 |
+| [advance-ledger.test.cjs](../../tests/advance-ledger.test.cjs) | 6 | 既有预支及元数据兼容、失败回滚和资金事实 |
+| [batch-cancellation.test.cjs](../../tests/batch-cancellation.test.cjs) | 5 | 撤销事务及完整资金不变 |
+| [batch-delete.test.cjs](../../tests/batch-delete.test.cjs) | 11 | 删除事务、审计、幂等及完整资金不变 |
+| [model.test.ts](../../tests/model.test.ts) | 8 | 金额精度、负余额、分配与汇总边界 |
 
-本机日志：[联合测试](../evidence/stage0/expense-correction-2026-10-12/final-tests.log)、[构建](../evidence/stage0/expense-correction-2026-10-12/build.log)。运行器 [run-checks.cjs](../evidence/stage0/expense-correction-2026-10-12/run-checks.cjs) 明确列出八份测试，不运行被排除的本地测试。
+本机日志：[联合测试](../../evidence/stage0/expense-correction-2026-10-12/final-tests.log)、[构建](../../evidence/stage0/expense-correction-2026-10-12/build.log)。运行器 [run-checks.cjs](../../evidence/stage0/expense-correction-2026-10-12/run-checks.cjs) 明确列出八份测试，不运行被排除的本地测试。
 
 ## 实际隔离页面与恢复
 
@@ -47,11 +49,11 @@ Mac arm64，本机既有依赖。实际联合执行下列文件，**85/85通过�
 
 | 证据 | 内容 |
 | --- | --- |
-| [ui-basic-result.json](../evidence/stage0/expense-correction-2026-10-12/ui-basic-result.json) | 取消／非法输入、精确差额、日期、附件及三窗口 |
-| [ui-retry-result.json](../evidence/stage0/expense-correction-2026-10-12/ui-retry-result.json) | 双激活、丢响应、改草稿及原请求重试 |
-| [ui-history-result.json](../evidence/stage0/expense-correction-2026-10-12/ui-history-result.json) | 新增关联竞态、八次审计、6／2分页与布局 |
-| [ui-backup-result.json](../evidence/stage0/expense-correction-2026-10-12/ui-backup-result.json)、[restore-result.json](../evidence/stage0/expense-correction-2026-10-12/restore-result.json) | 页面导出、CLI恢复、managed重开及完整比较 |
-| [390px表单](../evidence/stage0/expense-correction-2026-10-12/correction-form-390.png)、[390px审计](../evidence/stage0/expense-correction-2026-10-12/correction-history-390.png)、[桌面审计](../evidence/stage0/expense-correction-2026-10-12/correction-history-1586.png)、[备份页面](../evidence/stage0/expense-correction-2026-10-12/correction-backup.png) | 全部为本机合成截图，未上传 |
+| [ui-basic-result.json](../../evidence/stage0/expense-correction-2026-10-12/ui-basic-result.json) | 取消／非法输入、精确差额、日期、附件及三窗口 |
+| [ui-retry-result.json](../../evidence/stage0/expense-correction-2026-10-12/ui-retry-result.json) | 双激活、丢响应、改草稿及原请求重试 |
+| [ui-history-result.json](../../evidence/stage0/expense-correction-2026-10-12/ui-history-result.json) | 新增关联竞态、八次审计、6／2分页与布局 |
+| [ui-backup-result.json](../../evidence/stage0/expense-correction-2026-10-12/ui-backup-result.json)、[restore-result.json](../../evidence/stage0/expense-correction-2026-10-12/restore-result.json) | 页面导出、CLI恢复、managed重开及完整比较 |
+| [390px表单](../../evidence/stage0/expense-correction-2026-10-12/correction-form-390.png)、[390px审计](../../evidence/stage0/expense-correction-2026-10-12/correction-history-390.png)、[桌面审计](../../evidence/stage0/expense-correction-2026-10-12/correction-history-1586.png)、[备份页面](../../evidence/stage0/expense-correction-2026-10-12/correction-backup.png) | 全部为本机合成截图，未上传 |
 
 验证工具修正：首次通用date填充未保留React受控值，导致第一笔只保存金额及文本；改用原生日输入框键盘后日期正确保存，作为第二次元数据纠错核对。浏览器JSON辅助器括号错误发生于写入前；恢复检查初始手算请求数19有误，实际为20（包含并发新增报销），改为与源请求全集比较后通过。保留这些检查过程，不将失败尝试记作产品通过，也未为这些工具问题修改产品代码。
 

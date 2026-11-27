@@ -1,5 +1,7 @@
 # 报销记录独立页面与功能分支同步
 
+> **历史记录（只读）**：本文反映写作当时的情况，其中的“当前”“本轮”“下一步”都指当时。现行规则见 [业务规则](../BUSINESS_RULES.md)，现状见 [STATUS](../STATUS.md)。
+
 日期：2026-10-12。用户明确要求“推送 GitHub，然后继续开发”；先推送已完成的八项反馈版本，再独立补齐报销记录页。仍为阶段 0 的单独授权扩展，不进入完整阶段 1，不部署或合并 main。当前状态见 [STAGE0_STATUS](STAGE0_STATUS.md#当前状态)。
 
 ## 已完成的 GitHub 同步
@@ -56,11 +58,11 @@ Mac 独立 `agent-browser` 会话 `qianlai-batches-20261012` 实测：
 
 本轮证据均保留于上述 evidence 目录并排除 Git：
 
-- [查询测试](../evidence/stage0/reimbursement-records-2026-10-12/helper-tests.txt)、[撤销事务测试](../evidence/stage0/reimbursement-records-2026-10-12/cancel-tests.txt)、[最终构建](../evidence/stage0/reimbursement-records-2026-10-12/build-final.log)。
-- [分页／搜索／明细／撤销](../evidence/stage0/reimbursement-records-2026-10-12/records-ui-result.json)、[重复与重试](../evidence/stage0/reimbursement-records-2026-10-12/retry-ui-result.json)、[一条实际操作记录](../evidence/stage0/reimbursement-records-2026-10-12/retry-operation-result.json)、[布局及新增登记](../evidence/stage0/reimbursement-records-2026-10-12/layout-ui-result.json)。
-- [筛选和分页不改变全账本卡片](../evidence/stage0/reimbursement-records-2026-10-12/summary-ui-result.json)、[已推版本核对](../evidence/stage0/reimbursement-records-2026-10-12/push-result.json)。
-- [服务访问检查](../evidence/stage0/reimbursement-records-2026-10-12/delivery-http.json)：5192 页面 HTTP 200、数据库静态路径 403，只检查状态码。
-- [纯合成总览截图](../evidence/stage0/reimbursement-records-2026-10-12/reimbursement-records-overview.png)已保存 Library：`libfile_7230cf51fb40819186ac55920ad70405`；文件 `file_000000002c3481f682a3dc7a770db0af`，版本 0。原用户截图和试填账本未上传。
+- [查询测试](../../evidence/stage0/reimbursement-records-2026-10-12/helper-tests.txt)、[撤销事务测试](../../evidence/stage0/reimbursement-records-2026-10-12/cancel-tests.txt)、[最终构建](../../evidence/stage0/reimbursement-records-2026-10-12/build-final.log)。
+- [分页／搜索／明细／撤销](../../evidence/stage0/reimbursement-records-2026-10-12/records-ui-result.json)、[重复与重试](../../evidence/stage0/reimbursement-records-2026-10-12/retry-ui-result.json)、[一条实际操作记录](../../evidence/stage0/reimbursement-records-2026-10-12/retry-operation-result.json)、[布局及新增登记](../../evidence/stage0/reimbursement-records-2026-10-12/layout-ui-result.json)。
+- [筛选和分页不改变全账本卡片](../../evidence/stage0/reimbursement-records-2026-10-12/summary-ui-result.json)、[已推版本核对](../../evidence/stage0/reimbursement-records-2026-10-12/push-result.json)。
+- [服务访问检查](../../evidence/stage0/reimbursement-records-2026-10-12/delivery-http.json)：5192 页面 HTTP 200、数据库静态路径 403，只检查状态码。
+- [纯合成总览截图](../../evidence/stage0/reimbursement-records-2026-10-12/reimbursement-records-overview.png)已保存 Library：`libfile_7230cf51fb40819186ac55920ad70405`；文件 `file_000000002c3481f682a3dc7a770db0af`，版本 0。原用户截图和试填账本未上传。
 
 ## 未验证与下一步
 

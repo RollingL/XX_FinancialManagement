@@ -18,6 +18,8 @@
 !/tsconfig.json
 !/docs/
 !/docs/*.md
+!/docs/history/
+!/docs/history/*.md
 !/.impeccable/
 !/.impeccable/design.json
 !/prototype/

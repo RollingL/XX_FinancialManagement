@@ -1,8 +1,10 @@
 # 账本与附件备份恢复方案及验收清单
 
+> **历史记录（只读）**：本文反映写作当时的情况，其中的“当前”“本轮”“下一步”都指当时。现行规则见 [业务规则](../BUSINESS_RULES.md)，现状见 [STATUS](../STATUS.md)。
+
 日期：2026-10-12。状态：**已实现受限 managed 隔离账本的手动完整备份、验证和新目录恢复；Mac arm64 合成验证已通过。真实账本、Windows、新安装包、覆盖恢复、迁移与断电恢复仍未验证或未实现；Electron 开发运行的显式新隔离入口后续已定向验证。**
 
-用户后续已授权最小本地备份和新目录恢复。本轮只操作新建合成账本，不读取或接管 5173／5190／5191／5192 的既有数据，不自动切换账本。唯一当前状态见 [STAGE0_STATUS 顶部](STAGE0_STATUS.md#当前状态)；业务依据为 [需求规范第 10.2 节与 T20](../expense_bookkeeping_spec_v1.1.md#102-本地存储与备份)，实现与验证见 [MANAGED_BACKUP_VALIDATION](MANAGED_BACKUP_VALIDATION.md)。
+用户后续已授权最小本地备份和新目录恢复。本轮只操作新建合成账本，不读取或接管 5173／5190／5191／5192 的既有数据，不自动切换账本。唯一当前状态见 [STAGE0_STATUS 顶部](STAGE0_STATUS.md#当前状态)；业务依据为 [需求规范第 10.2 节与 T20](../../expense_bookkeeping_spec_v1.1.md#102-本地存储与备份)，实现与验证见 [MANAGED_BACKUP_VALIDATION](MANAGED_BACKUP_VALIDATION.md)。
 
 备份页与“清空所有数据”已在新5195合成实例通过定向验证，含真实附件权限失败、重开锁定与显式续清理。备份后端对 `generation`、`resetReceipt` 和未完成清空日志有定向校验；独立结果见 [LEDGER_RESET_VALIDATION](LEDGER_RESET_VALIDATION.md)。
 
@@ -98,11 +100,11 @@ Windows 的目录改名、文件占用、权限、落盘与启动恢复必须实
 
 本轮范围为 Mac arm64、Node v26.10.0 的合成 managed 账本，不是全平台或生产验收。已核对下列实际证据；两轮测试计数不能相加声称最新全量回归：
 
-- [此前联合测试](../evidence/stage0/managed-backup-2026-10-12/tests.log)：29/29，即当时备份 17 项、managed 锁与闸门 12 项。
-- [最新备份后端测试](../evidence/stage0/managed-backup-2026-10-12/backend-tests.txt)：22/22；包含原 17 项及 generation、resetReceipt、未完成清空日志的 5 项新增校验，不代表清空端到端完成。
-- [CLI 完整往返](../evidence/stage0/managed-backup-2026-10-12/roundtrip-result.json)：4 笔费用、1 笔预支、2 个保留批次、1 条删除审计、2 个登记附件和 1 个孤立附件；两个新目录恢复的完整事实、资金和附件均一致，源数据库字节未变，既有目标拒绝。
-- [恢复副本页面检查](../evidence/stage0/managed-backup-2026-10-12/restored-ui-result.json)：5194 曾读取正确负余额及完整状态，费用／预支附件解码及哈希一致，撤销状态保留、删除记录未复活；私有数据库、marker 和附件的静态请求均返回 403。
-- [正常关闭记录](../evidence/stage0/managed-backup-2026-10-12/shutdown-result.json)：该次 5194 服务接收正常 SIGTERM 后释放生命周期锁。
+- [此前联合测试](../../evidence/stage0/managed-backup-2026-10-12/tests.log)：29/29，即当时备份 17 项、managed 锁与闸门 12 项。
+- [最新备份后端测试](../../evidence/stage0/managed-backup-2026-10-12/backend-tests.txt)：22/22；包含原 17 项及 generation、resetReceipt、未完成清空日志的 5 项新增校验，不代表清空端到端完成。
+- [CLI 完整往返](../../evidence/stage0/managed-backup-2026-10-12/roundtrip-result.json)：4 笔费用、1 笔预支、2 个保留批次、1 条删除审计、2 个登记附件和 1 个孤立附件；两个新目录恢复的完整事实、资金和附件均一致，源数据库字节未变，既有目标拒绝。
+- [恢复副本页面检查](../../evidence/stage0/managed-backup-2026-10-12/restored-ui-result.json)：5194 曾读取正确负余额及完整状态，费用／预支附件解码及哈希一致，撤销状态保留、删除记录未复活；私有数据库、marker 和附件的静态请求均返回 403。
+- [正常关闭记录](../../evidence/stage0/managed-backup-2026-10-12/shutdown-result.json)：该次 5194 服务接收正常 SIGTERM 后释放生命周期锁。
 
 `evidence/` 仅保留本机，不随 Git 上传。下表“通过”均限定上述合成范围，未覆盖项明确列出。
 

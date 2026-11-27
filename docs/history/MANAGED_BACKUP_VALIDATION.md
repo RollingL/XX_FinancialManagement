@@ -1,5 +1,7 @@
 # 本地完整备份与新目录恢复验证
 
+> **历史记录（只读）**：本文反映写作当时的情况，其中的“当前”“本轮”“下一步”都指当时。现行规则见 [业务规则](../BUSINESS_RULES.md)，现状见 [STATUS](../STATUS.md)。
+
 日期：2026-10-12。范围：Mac arm64、新建隔离合成账本；阶段 0 扩展，本地交付，未再次推送。当前状态统一见 [STAGE0_STATUS](STAGE0_STATUS.md#当前状态)，格式及剩余验收见 [BACKUP_RECOVERY_PLAN](BACKUP_RECOVERY_PLAN.md)。
 
 ## 已实现

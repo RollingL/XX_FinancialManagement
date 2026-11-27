@@ -1,8 +1,10 @@
 # 当前视觉方向：已批准并实施 v2
 
+> **历史记录（只读）**：本文反映写作当时的情况，其中的“当前”“本轮”“下一步”都指当时。现行规则见 [业务规则](../BUSINESS_RULES.md)，现状见 [STATUS](../STATUS.md)。
+
 2026-10-12 用户在雾紫白 v2 概念图下批准“按这一版再加深饱和度开始执行”。参考本地 `A-雾紫白-低饱和-v2.png`，1586×992；没有使用后续 Library v3。浅侧栏、三张摘要卡、列表及右侧待处理区已经落实，主按钮与选中态适度加深紫色。
 
-实现记录见 [DESIGN](../DESIGN.md)，本轮实际测试见 [UI_V2_VALIDATION](UI_V2_VALIDATION.md)，当前业务边界见 [STAGE0_STATUS](STAGE0_STATUS.md#当前状态)。本轮不推送、不改数据库结构或真实账目；预支新增与查看后来获得单独授权，见 [ADVANCE_VALIDATION](ADVANCE_VALIDATION.md)；发票、备份仍未开放。
+实现记录见 [DESIGN](../../DESIGN.md)，本轮实际测试见 [UI_V2_VALIDATION](UI_V2_VALIDATION.md)，当前业务边界见 [STAGE0_STATUS](STAGE0_STATUS.md#当前状态)。本轮不推送、不改数据库结构或真实账目；预支新增与查看后来获得单独授权，见 [ADVANCE_VALIDATION](ADVANCE_VALIDATION.md)；发票、备份仍未开放。
 
 以下是此前方向及反馈的历史记录，不再表示当前偏好尚未提供。
 

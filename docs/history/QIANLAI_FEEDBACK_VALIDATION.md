@@ -1,5 +1,7 @@
 # 钱来：试用反馈八项验证
 
+> **历史记录（只读）**：本文反映写作当时的情况，其中的“当前”“本轮”“下一步”都指当时。现行规则见 [业务规则](../BUSINESS_RULES.md)，现状见 [STATUS](../STATUS.md)。
+
 日期：2026-10-12。仍为阶段 0 的单独授权扩展，在本地 `codex/ui-mist-lavender-v2` 分支实现，不推送或部署，不进入完整阶段 1。当前状态统一见 [STAGE0_STATUS](STAGE0_STATUS.md#当前状态)。
 
 ## 实现范围
@@ -50,16 +52,16 @@ Mac 上使用独立 `agent-browser` 会话 `qianlai-feedback-20261012`，实际�
 
 本机证据目录：`evidence/stage0/qianlai-feedback-2026-10-12/`（全部排除 Git）。
 
-- [后端测试记录](../evidence/stage0/qianlai-feedback-2026-10-12/backend-test-summary.txt)、[分页测试记录](../evidence/stage0/qianlai-feedback-2026-10-12/pagination-test-summary.txt)、[最终构建](../evidence/stage0/qianlai-feedback-2026-10-12/build-final.log)。
-- [分页及资金不变量](../evidence/stage0/qianlai-feedback-2026-10-12/pagination-ui-result.json)、[撤销及页码夹紧](../evidence/stage0/qianlai-feedback-2026-10-12/clamp-ui-result.json)、[预支附件](../evidence/stage0/qianlai-feedback-2026-10-12/attachment-ui-result.json)。
-- [图片异步生命周期](../evidence/stage0/qianlai-feedback-2026-10-12/image-lifecycle-result.json)、[合成 OCR 与费用保存](../evidence/stage0/qianlai-feedback-2026-10-12/expense-image-result.json)、[布局结果](../evidence/stage0/qianlai-feedback-2026-10-12/layout-result.json)。浏览器操作及断言保留于同目录脚本和 `browser-checks.log`。
-- [纯合成数据总览截图](../evidence/stage0/qianlai-feedback-2026-10-12/qianlai-feedback-overview.png)已保存 Library：`libfile_7d0e86c5bbfc81918d9c5a578e81a854`，文件 `file_00000000b3f881f5b366a95bf4d528fd`，版本 0。未上传用户红框原图或账本。
+- [后端测试记录](../../evidence/stage0/qianlai-feedback-2026-10-12/backend-test-summary.txt)、[分页测试记录](../../evidence/stage0/qianlai-feedback-2026-10-12/pagination-test-summary.txt)、[最终构建](../../evidence/stage0/qianlai-feedback-2026-10-12/build-final.log)。
+- [分页及资金不变量](../../evidence/stage0/qianlai-feedback-2026-10-12/pagination-ui-result.json)、[撤销及页码夹紧](../../evidence/stage0/qianlai-feedback-2026-10-12/clamp-ui-result.json)、[预支附件](../../evidence/stage0/qianlai-feedback-2026-10-12/attachment-ui-result.json)。
+- [图片异步生命周期](../../evidence/stage0/qianlai-feedback-2026-10-12/image-lifecycle-result.json)、[合成 OCR 与费用保存](../../evidence/stage0/qianlai-feedback-2026-10-12/expense-image-result.json)、[布局结果](../../evidence/stage0/qianlai-feedback-2026-10-12/layout-result.json)。浏览器操作及断言保留于同目录脚本和 `browser-checks.log`。
+- [纯合成数据总览截图](../../evidence/stage0/qianlai-feedback-2026-10-12/qianlai-feedback-overview.png)已保存 Library：`libfile_7d0e86c5bbfc81918d9c5a578e81a854`，文件 `file_00000000b3f881f5b366a95bf4d528fd`，版本 0。未上传用户红框原图或账本。
 
 新试用入口：http://127.0.0.1:5191/ 。独立副本在本证据目录 `preview/app/`，独立合成账本在 `preview/.local-data/`；服务关闭后可从项目根运行 `./evidence/stage0/qianlai-feedback-2026-10-12/preview/start.sh`。最终包含 17 笔明确合成费用、10 笔合成预支、9 批报销（其中新测批次已撤销）、2 份合成图片。不要将其当作空正式账本。
 
 本轮保留原 5173（PID 6656）与 5190（PID 38798），未读取、重置或迁移其账本；用户在 5190 的试填和未保存草稿保持原状。新 5191（PID 46803）为独立进程；交付前核对三个进程仍在，八个相关源码文件与预览副本字节一致。
 
-交付连接检查：新 5191 页面返回 HTTP 200，数据库静态路径返回 403；只检查状态码，未读取数据库响应正文。结果见 [delivery-http.json](../evidence/stage0/qianlai-feedback-2026-10-12/delivery-http.json)。
+交付连接检查：新 5191 页面返回 HTTP 200，数据库静态路径返回 403；只检查状态码，未读取数据库响应正文。结果见 [delivery-http.json](../../evidence/stage0/qianlai-feedback-2026-10-12/delivery-http.json)。
 
 ## 未验证及下一步
 

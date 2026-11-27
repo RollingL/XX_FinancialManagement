@@ -1,8 +1,10 @@
 # 阶段 0 状态与交接
 
+> **历史记录（只读）**：本文反映写作当时的情况，其中的“当前”“本轮”“下一步”都指当时。现行规则见 [业务规则](../BUSINESS_RULES.md)，现状见 [STATUS](../STATUS.md)。
+
 ## 当前状态
 
-2026-11-27 整理。默认分支交接内容沿用 [10 月 16 日稳定性源码](https://github.com/RollingL/XX_FinancialManagement/commit/21d14a715646e784eb5b6bef62e881000914b75b)。本轮将源码历史与接手文档汇合。开发入口见 [README](../README.md)，Claude 接手顺序见 [开发交接](HANDOFF.md)。下方按原日期保留早期授权和证据。
+2026-11-27 整理。默认分支交接内容沿用 [10 月 16 日稳定性源码](https://github.com/RollingL/XX_FinancialManagement/commit/21d14a715646e784eb5b6bef62e881000914b75b)。本轮将源码历史与接手文档汇合。开发入口见 [README](../../README.md)，Claude 接手顺序见 [开发交接](HANDOFF.md)。下方按原日期保留早期授权和证据。
 
 | 范围 | 当前行为 |
 | --- | --- |
@@ -17,7 +19,7 @@
 - **本次交接**以归档的受控源码在独立 Mac arm64 目录执行 `npm run build` 与 `npm test`。构建通过，Node 278 项通过、5 项 Windows 启动器用例跳过。Python 测试 21 项通过。首次受限环境无法查询本机进程启动身份，重跑允许只读系统查询后通过。合成图在 OS 禁网且禁写下完成两次 OCR，本轮未重打包。
 - **10 月 16 日**在 Mac 原生合成账本验证关键业务、完整恢复及正常关闭重开。Windows Server CI [运行 38852211112](https://github.com/RollingL/XX_FinancialManagement/actions/runs/38852211112) 验证 `21d14a7`，原生启动器 5 项、Node 定向 110 项、Python 4 项，以及解压 GUI 正常关闭重开和随包 SQLite、OCR 通过。下载时复核 272 个文件及 ZIP 哈希。产物已过保留期，历史证据见 [稳定性记录](WINDOWS_STABILITY_2026-10-16.md)。
 - **10 月 13 日**用户确认 Mac 九项修订实测，并认可 Windows 同阶段验收。该次 Windows 认可属于用户决定，九项修订没有新真机测试。见 [已验收版本基线](ACCEPTED_BASELINE_2026-10-13.md)。
-- **待验证**包括目标 Windows 10 Intel x64 首次完全断网、真实账本升级、关机或异常终止、中文路径与 DPI 和输入法矩阵，以及 Mac Intel 和签名分发。见 [Windows 验证矩阵](WINDOWS_VALIDATION.md)。
+- **待验证**包括目标 Windows 10 Intel x64 首次完全断网、真实账本升级、关机或异常终止、中文路径与 DPI 和输入法矩阵，以及 Mac Intel 和签名分发。见 [Windows 验证矩阵](../WINDOWS_VALIDATION.md)。
 
 按 [开发表](HANDOFF.md#代码入口) 选择下一项。真实账本、证据、原图、备份、构建包及来源待确认的测试仍留在原机。
 
@@ -39,7 +41,7 @@
 
 九项修订及验证详见 [MAC_FEEDBACK_VALIDATION](MAC_FEEDBACK_VALIDATION.md)；恢复工作先读 [已验收版本基线](ACCEPTED_BASELINE_2026-10-13.md)。仍为阶段0的已授权增量，不代表完整规范或生产账本所有能力验收。旧服务、真实数据、原图、备份及本地包均保留在本机，未纳入本次提交。
 
-业务权威：[需求规范 v1.1](../expense_bookkeeping_spec_v1.1.md)。入口：[README](../README.md)。计划：[IMPLEMENTATION_PLAN](IMPLEMENTATION_PLAN.md)。本项目与 iPhone 口袋账本分开。
+业务权威：[需求规范 v1.1](../../expense_bookkeeping_spec_v1.1.md)。入口：[README](../../README.md)。计划：[IMPLEMENTATION_PLAN](IMPLEMENTATION_PLAN.md)。本项目与 iPhone 口袋账本分开。
 
 ### 10 月 16 日功能盘点（历史）
 
@@ -94,11 +96,11 @@
 
 上传隐私复核将两份精确支付样本来源尚未确认的测试保留本地、排除远程；旧 Node 17／Python 24 项记录包含这两份文件，不能直接视为远程检出版本已通过。下述历史证据仍按原范围保留说明。
 
-- [Node 日志](../evidence/stage0/expense-ocr-2026-10-12/unit-tests.log)：17 项通过，包含精度、分配、SQLite 重开、幂等、失败清理和完整派生资金流水／预支／余额比较。
-- [Python 日志](../evidence/stage0/expense-ocr-2026-10-12/python-tests.log)：24 项解析测试通过；[构建日志](../evidence/stage0/expense-ocr-2026-10-12/build.log)记录 Vite 构建完成，历史交接记录 TypeScript 检查通过。
-- [合成 OCR 回归](../evidence/stage0/expense-ocr-2026-10-12/synthetic-regression.log)：30 张中 29 张精确匹配、1 张安全留空、0 个错误支出建议；严格端到端检查未全部通过。
-- [四张真实截图字段匹配](../evidence/stage0/expense-ocr-2026-10-12/real-samples.json)、[浏览器保存记录](../evidence/stage0/expense-ocr-2026-10-12/browser-real-samples.json)：仅代表已授权的四张样本，不是泛化准确率。
-- [Mac 原生检查](../evidence/stage0/expense-ocr-2026-10-12/native-checks.json)、[OCR 进程隔离](../evidence/stage0/expense-ocr-2026-10-12/ocr-process-isolation.json)：历史记录支持重启附件可读、私有目录排除及 Mac 禁网禁写；不替代 Windows 验收。
+- [Node 日志](../../evidence/stage0/expense-ocr-2026-10-12/unit-tests.log)：17 项通过，包含精度、分配、SQLite 重开、幂等、失败清理和完整派生资金流水／预支／余额比较。
+- [Python 日志](../../evidence/stage0/expense-ocr-2026-10-12/python-tests.log)：24 项解析测试通过；[构建日志](../../evidence/stage0/expense-ocr-2026-10-12/build.log)记录 Vite 构建完成，历史交接记录 TypeScript 检查通过。
+- [合成 OCR 回归](../../evidence/stage0/expense-ocr-2026-10-12/synthetic-regression.log)：30 张中 29 张精确匹配、1 张安全留空、0 个错误支出建议；严格端到端检查未全部通过。
+- [四张真实截图字段匹配](../../evidence/stage0/expense-ocr-2026-10-12/real-samples.json)、[浏览器保存记录](../../evidence/stage0/expense-ocr-2026-10-12/browser-real-samples.json)：仅代表已授权的四张样本，不是泛化准确率。
+- [Mac 原生检查](../../evidence/stage0/expense-ocr-2026-10-12/native-checks.json)、[OCR 进程隔离](../../evidence/stage0/expense-ocr-2026-10-12/ocr-process-isolation.json)：历史记录支持重启附件可读、私有目录排除及 Mac 禁网禁写；不替代 Windows 验收。
 - `spike/sqlite-probe.cjs` 的关系表、外键、资金视图和一致快照属于隔离依赖探针，不能作为试用账本已具备正式模型、完整备份或恢复的证明。
 
 `evidence/` 全部保留本地并排除在本轮 Git 范围外，因此新的检出不自带上述证据。旧 `ship` 仅覆盖当时界面／材料审查，不是软件交付、Windows、安全或用户当前视觉认可。
