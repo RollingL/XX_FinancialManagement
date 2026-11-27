@@ -5,7 +5,7 @@ const fs = require('node:fs'),
   path = require('node:path'),
   { randomUUID } = require('node:crypto');
 const Database = require('better-sqlite3');
-const { createLedger } = require('../spike/trial-ledger.cjs');
+const { createLedger } = require('../src/main/ledger.cjs');
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-batch-cancel-'));
@@ -128,7 +128,7 @@ async function seed(f) {
 test('cancelling a cross-category batch changes only its active flag and restores only its allocations', async (t) => {
   const f = fixture(t),
     { targetId } = await seed(f),
-    { remaining, balance } = await import('../prototype/src/model.ts'),
+    { remaining, balance } = await import('../src/renderer/model.ts'),
     before = await read(f),
     target = before.batches.find((batch) => batch.id === targetId);
   const remainingBefore = before.expenses.map((expense) => remaining(expense, before.batches));
@@ -187,7 +187,7 @@ test('same cancellation request is idempotent before and after SQLite reopen wit
 test('a new request cancelling an already cancelled batch leaves state and funds unchanged and records its own operation', async (t) => {
   const f = fixture(t),
     { targetId } = await seed(f),
-    { balance } = await import('../prototype/src/model.ts');
+    { balance } = await import('../src/renderer/model.ts');
   await f.ledger.command(cancel(targetId));
   const before = await snapshot(f),
     input = cancel(targetId),
@@ -226,7 +226,7 @@ test('missing batch and same request with different content reject without state
 test('operation insertion failure rolls back cancellation completely and the same request can retry after recovery', async (t) => {
   const f = fixture(t),
     { targetId } = await seed(f),
-    { balance } = await import('../prototype/src/model.ts'),
+    { balance } = await import('../src/renderer/model.ts'),
     input = cancel(targetId),
     before = await snapshot(f);
   f.db((db) =>

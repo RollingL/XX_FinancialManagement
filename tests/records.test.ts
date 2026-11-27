@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PAGE_SIZE, paginate, matchesExpense, selectScope } from '../prototype/src/records.ts';
-import { reimbursementRows } from '../prototype/src/reimbursement-draft.ts';
+import { PAGE_SIZE, paginate, matchesExpense, selectScope } from '../src/renderer/records.ts';
+import { reimbursementRows } from '../src/renderer/reimbursement-draft.ts';
 import {
   allocate,
   balance,
@@ -9,8 +9,8 @@ import {
   rowCents,
   sum,
   validateAllocation,
-} from '../prototype/src/model.ts';
-import type { Expense, Batch, Allocation } from '../prototype/src/model.ts';
+} from '../src/renderer/model.ts';
+import type { Expense, Batch, Allocation } from '../src/renderer/model.ts';
 
 const expenses: Expense[] = Array.from({ length: 13 }, (_, index) => ({
   id: index + 1,

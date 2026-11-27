@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { rolldown } from 'rolldown';
-import { singleImage, validateImageFile, MAX_IMAGE_BYTES } from '../prototype/src/image-file.ts';
+import { singleImage, validateImageFile, MAX_IMAGE_BYTES } from '../src/renderer/image-file.ts';
 
 // Compile only this component in memory. External modules are explicit fakes;
 // no ledger, browser, or user images are opened by these tests.
 const bundle = await rolldown({
-  input: fileURLToPath(new URL('../prototype/src/ExpenseScreenshot.tsx', import.meta.url)),
+  input: fileURLToPath(new URL('../src/renderer/Screenshot.tsx', import.meta.url)),
   external: () => true,
 });
 const compiled = await bundle.generate({ format: 'cjs', exports: 'named' });
@@ -144,7 +144,7 @@ function harness(
   function render() {
     cursor = 0;
     tree = options.attachment
-      ? exports.ExpenseAttachment({ id: 'synthetic-original', kind: props.kind })
+      ? exports.SavedScreenshot({ id: 'synthetic-original', kind: props.kind })
       : exports.default(props);
     while (effects.length) effects.shift()!();
     return tree;

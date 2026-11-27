@@ -5,14 +5,14 @@ const fs = require('node:fs'),
   path = require('node:path'),
   { randomUUID, createHash } = require('node:crypto');
 const Database = require('better-sqlite3'),
-  { createLedger } = require('../spike/trial-ledger.cjs');
-const { createManagedLedger } = require('../spike/managed-ledger.cjs');
+  { createLedger } = require('../src/main/ledger.cjs');
+const { createManagedLedger } = require('../src/main/managed-ledger.cjs');
 const {
   resetLedger,
   resumeReset,
   readResetStatus,
   CONFIRMATION,
-} = require('../spike/ledger-reset.cjs');
+} = require('../src/main/ledger-reset.cjs');
 const png = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGOYVnECAAN+AdcpgjGUAAAAAElFTkSuQmCC',
   'base64',
@@ -263,8 +263,8 @@ test('partial attachment cleanup stays pending and same request resumes after re
     (e) => e.code === 'RESET_PENDING',
   );
   assert.deepEqual(state(f), empty);
-  delete require.cache[require.resolve('../spike/ledger-reset.cjs')];
-  const reopened = require('../spike/ledger-reset.cjs');
+  delete require.cache[require.resolve('../src/main/ledger-reset.cjs')];
+  const reopened = require('../src/main/ledger-reset.cjs');
   assert.deepEqual(reopened.readResetStatus(f.root), pending);
   assert.deepEqual(reopened.resumeReset(f.args), empty);
   assert.deepEqual(files(f), []);

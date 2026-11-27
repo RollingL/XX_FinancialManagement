@@ -7,10 +7,10 @@ import {
   remaining,
   sum,
   validateAllocation,
-} from '../prototype/src/model.ts';
-import type { Batch, Expense } from '../prototype/src/model.ts';
-import { batchRecords, batchRecordsSummary, batchTotal } from '../prototype/src/batch-records.ts';
-import { paginate } from '../prototype/src/records.ts';
+} from '../src/renderer/model.ts';
+import type { Batch, Expense } from '../src/renderer/model.ts';
+import { batchRecords, batchRecordsSummary, batchTotal } from '../src/renderer/batch-records.ts';
+import { paginate } from '../src/renderer/records.ts';
 
 // Entirely synthetic model states; no ledger, browser, filesystem data or API is opened.
 const expenses: Expense[] = Array.from({ length: 8 }, (_, index) => ({

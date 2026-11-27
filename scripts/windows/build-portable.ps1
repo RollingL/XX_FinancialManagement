@@ -20,7 +20,7 @@ if (!$env:GITHUB_WORKSPACE -or !$env:RUNNER_TEMP -or !$env:GITHUB_RUN_ID -or !$e
 }
 $workspace = (Resolve-Path -LiteralPath $env:GITHUB_WORKSPACE).ProviderPath.TrimEnd('\')
 $cwd = (Get-Location).ProviderPath.TrimEnd('\')
-$scriptRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).ProviderPath.TrimEnd('\')
+$scriptRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).ProviderPath.TrimEnd('\')
 if (![StringComparer]::OrdinalIgnoreCase.Equals($cwd, $workspace) -or
     ![StringComparer]::OrdinalIgnoreCase.Equals($scriptRoot, $workspace)) {
     throw 'Run this checked-out script from the exact GITHUB_WORKSPACE root.'
@@ -36,8 +36,8 @@ foreach ($relative in $freshPaths) {
         throw "Refusing an existing build/data path: $relative. Use a fresh CI checkout; nothing was deleted."
     }
 }
-foreach ($relative in @('package-lock.json', 'spike/prepare-windows-portable.cjs', 'spike/windows-package-check.cjs',
-    'spike/windows-launcher.cpp', 'tests/fixtures/windows-launcher-child.cpp', 'tests/windows-gui-smoke.cjs',
+foreach ($relative in @('package-lock.json', 'scripts/windows/prepare-portable.cjs', 'scripts/windows/package-check.cjs',
+    'scripts/windows/launcher.cpp', 'tests/fixtures/windows-launcher-child.cpp', 'tests/windows-gui-smoke.cjs',
     'tests/fixtures/synthetic-payment.png', 'docs/WINDOWS_OFFLINE_TRIAL.md')) {
     if (!(Test-Path -LiteralPath (Join-Path $workspace $relative) -PathType Leaf)) {
         throw "Missing required build input: $relative"
@@ -48,7 +48,7 @@ foreach ($setting in Get-ChildItem Env:) {
         throw "Remove Electron mirror/checksum/path override from this CI job: $($setting.Name)"
     }
 }
-$logRoot = Join-Path $workspace "evidence/stage0/windows-ci-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
+$logRoot = Join-Path $workspace "evidence/windows-ci-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
 if (Test-Path -LiteralPath $logRoot) { throw 'The CI log directory already exists; refusing to overwrite it.' }
 [void](New-Item -ItemType Directory -Path $logRoot)
 Start-Transcript -LiteralPath (Join-Path $logRoot 'build.log') -NoClobber | Out-Null
@@ -103,7 +103,7 @@ try {
     $launcher = Join-Path $launcherRoot 'Qianlai.exe'
     $fixture = Join-Path $logRoot 'windows-launcher-child.exe'
     foreach ($build in @(
-        @{ source='spike/windows-launcher.cpp'; output=$launcher; object=(Join-Path $launcherRoot 'launcher.obj') },
+        @{ source='scripts/windows/launcher.cpp'; output=$launcher; object=(Join-Path $launcherRoot 'launcher.obj') },
         @{ source='tests/fixtures/windows-launcher-child.cpp'; output=$fixture; object=(Join-Path $logRoot 'launcher-child.obj') }
     )) {
         Invoke-Native -File $compiler -Arguments @('/nologo', '/std:c++17', '/EHsc', '/W4', '/WX', '/O2', '/MT', '/utf-8',
@@ -126,9 +126,9 @@ try {
         'tests/windows-portable.test.cjs', 'tests/image-check.test.cjs', 'tests/expense-export.test.ts', 'tests/expense-download.test.ts',
         'tests/windows-runtime.test.cjs', 'tests/ledger-lock.test.cjs', 'tests/managed-restore.test.cjs',
         'tests/record-backup.test.cjs', 'tests/record-crud.test.cjs', 'tests/invoice-reminder.test.cjs', 'tests/ledger-backup.test.cjs')
-    Invoke-Native -File $node -Arguments @('-e', 'require("./spike/windows-package-check.cjs").checkWindowsPackage(process.cwd(),"x64");console.log("Windows package inputs checked; target acceptance is still pending")')
+    Invoke-Native -File $node -Arguments @('-e', 'require("./scripts/windows/package-check.cjs").checkWindowsPackage(process.cwd(),"x64");console.log("Windows package inputs checked; target acceptance is still pending")')
     Invoke-Native -File $npm -Arguments @('run', 'package', '--', '--platform=win32', '--arch=x64')
-    Invoke-Native -File $node -Arguments @('spike/prepare-windows-portable.cjs')
+    Invoke-Native -File $node -Arguments @('scripts/windows/prepare-portable.cjs')
 
     $candidateName = "Qianlai-Windows10-x64-$($env:GITHUB_SHA.Substring(0, 12))"
     $portableRoot = Join-Path $workspace 'out/windows-offline'
@@ -153,7 +153,7 @@ try {
     }
     Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot
     $extracted = Join-Path $extractRoot $candidateName
-    Invoke-Native -File $node -Arguments @('spike/prepare-windows-portable.cjs', '--verify-extracted', $extracted) |
+    Invoke-Native -File $node -Arguments @('scripts/windows/prepare-portable.cjs', '--verify-extracted', $extracted) |
         Tee-Object -FilePath (Join-Path $logRoot 'extracted-runner-probe.json')
     Invoke-Native -File $node -Arguments @('tests/windows-gui-smoke.cjs', $extracted) |
         Tee-Object -FilePath (Join-Path $logRoot 'extracted-runner-gui.json')

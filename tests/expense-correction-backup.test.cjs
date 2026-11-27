@@ -5,14 +5,14 @@ const fs = require('node:fs'),
   os = require('node:os');
 const { randomUUID, createHash } = require('node:crypto');
 const Database = require('better-sqlite3');
-const { createManagedLedger } = require('../spike/managed-ledger.cjs');
-const { createLedger } = require('../spike/trial-ledger.cjs');
+const { createManagedLedger } = require('../src/main/managed-ledger.cjs');
+const { createLedger } = require('../src/main/ledger.cjs');
 const {
   createBackup,
   inspectDatabase,
   verifyBackup,
   restoreBackup,
-} = require('../spike/ledger-backup.cjs');
+} = require('../src/main/ledger-backup.cjs');
 // Generated 1 x 1 PNG, containing no receipt or user data.
 const png = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGOYVnECAAN+AdcpgjGUAAAAAElFTkSuQmCC',

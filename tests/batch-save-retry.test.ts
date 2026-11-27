@@ -8,12 +8,12 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { rolldown } from 'rolldown';
-import { balance } from '../prototype/src/model.ts';
+import { balance } from '../src/renderer/model.ts';
 const require = createRequire(import.meta.url);
-const { createLedger } = require('../spike/trial-ledger.cjs');
+const { createLedger } = require('../src/main/ledger.cjs');
 // Compile the actual App only in memory; use its handlers with a fresh synthetic SQLite ledger.
 const build = await rolldown({
-  input: fileURLToPath(new URL('../prototype/src/main.tsx', import.meta.url)),
+  input: fileURLToPath(new URL('../src/renderer/main.tsx', import.meta.url)),
   external: () => true,
 });
 const compiled = await build.generate({ format: 'cjs' });
@@ -140,9 +140,7 @@ async function fixture(
     exports: {},
     require: (id: string) =>
       modules[id] ??
-      (id.endsWith('.css') || id.endsWith('.tsx')
-        ? {}
-        : require(path.resolve('prototype/src', id))),
+      (id.endsWith('.css') || id.endsWith('.tsx') ? {} : require(path.resolve('src/renderer', id))),
     crypto: { randomUUID },
     structuredClone,
     window: {

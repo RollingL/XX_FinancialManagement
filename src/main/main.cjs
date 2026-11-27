@@ -274,7 +274,7 @@ if (primary)
             backupDestination,
             allowLegacyRecovery: portable?.allowLegacyRecovery === true,
           })
-        : require('./trial-ledger.cjs').createLedger(
+        : require('./ledger.cjs').createLedger(
             dataDir || path.join(app.getPath('userData'), 'stage0-trial'),
           );
       startupEvent('ledger-open');
@@ -297,7 +297,7 @@ if (primary)
         startupEvent('render-process-gone', { reason: details.reason, exitCode: details.exitCode });
         if (details.reason !== 'clean-exit') fatalShutdown('renderer-failed');
       });
-      const entry = path.join(__dirname, '..', 'dist', 'index.html'),
+      const entry = path.join(__dirname, '..', '..', 'dist', 'index.html'),
         entryURL = pathToFileURL(entry).href;
       const trusted = (event) =>
         event.sender === win.webContents &&

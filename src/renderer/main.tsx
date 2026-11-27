@@ -18,7 +18,7 @@ import './expense-export.css';
 import { expenseFilterError, expenseStatus, filterExpenses, expenseCsv } from './expense-export.ts';
 import type { ExpenseFilters } from './expense-export.ts';
 import { downloadExpenseCsv } from './expense-download.ts';
-import ExpenseScreenshot, { ExpenseAttachment } from './ExpenseScreenshot.tsx';
+import ScreenshotPicker, { SavedScreenshot } from './Screenshot.tsx';
 import { ledgerCommand, imagePayload } from './ledger.ts';
 import AdvanceEditor from './AdvanceEditor.tsx';
 import type { LedgerState } from './ledger.ts';
@@ -1123,7 +1123,7 @@ function App() {
             </aside>
           </div>
         )}
-        <p className="prototype-note">
+        <p className="footer-note">
           账目与附件保存在本机，请定期备份。实际退款和退还预支暂不支持，请勿用修改或删除原记录代替。
         </p>
       </main>
@@ -1195,7 +1195,7 @@ function App() {
         {panel === 'advance' && (
           <form onSubmit={saveAdvance}>
             <div className="drawer-body">
-              <ExpenseScreenshot
+              <ScreenshotPicker
                 kind="advance"
                 onFile={setAttachment}
                 onBusy={setImageBusy}
@@ -1269,7 +1269,7 @@ function App() {
         {panel === 'new' && (
           <form onSubmit={saveExpense}>
             <div className="drawer-body">
-              <ExpenseScreenshot onFile={setAttachment} onBusy={setImageBusy} disabled={saving} />
+              <ScreenshotPicker onFile={setAttachment} onBusy={setImageBusy} disabled={saving} />
               <fieldset className="expense-fields" disabled={saving || imageBusy}>
                 <div className="segmented" role="group" aria-label="费用类别">
                   {(['接待', '办公'] as const).map((c) => (
@@ -1617,7 +1617,7 @@ function App() {
               </dl>
               <p className="help">{current.note}</p>
               {current.attachmentId && (
-                <ExpenseAttachment key={current.attachmentId} id={current.attachmentId} />
+                <SavedScreenshot key={current.attachmentId} id={current.attachmentId} />
               )}
               <InvoiceReminder
                 key={current.id}

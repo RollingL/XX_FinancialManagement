@@ -1,12 +1,12 @@
 import { defineConfig } from 'vite';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { createLedger, ledgerMiddleware } = require('./spike/trial-ledger.cjs');
+const { createLedger, ledgerMiddleware } = require('./src/main/ledger.cjs');
 let disposeLedger: (() => Promise<void>) | undefined;
 export default defineConfig({
-  root: 'prototype',
+  root: 'src/renderer',
   base: './',
-  build: { outDir: '../dist', emptyOutDir: true },
+  build: { outDir: '../../dist', emptyOutDir: true },
   server: {
     port: 5173,
     strictPort: true,
@@ -38,7 +38,7 @@ export default defineConfig({
         if (backupDestination && !require('node:path').isAbsolute(backupDestination))
           throw Error('备份目的地须由本机启动配置明确指定为绝对目录');
         const ledger = managed
-          ? require('./spike/managed-ledger.cjs').createManagedLedger(dataDir, {
+          ? require('./src/main/managed-ledger.cjs').createManagedLedger(dataDir, {
               backupDestination,
             })
           : createLedger(dataDir || require('node:path').resolve('.local-data'));

@@ -1,7 +1,7 @@
 const test = require('node:test'),
   assert = require('node:assert/strict'),
   { Readable } = require('node:stream');
-const { ledgerMiddleware } = require('../spike/trial-ledger.cjs');
+const { ledgerMiddleware } = require('../src/main/ledger.cjs');
 test('trial ledger API rejects foreign origin, wrong Host, missing header, and corrupt JSON', async () => {
   let calls = 0;
   const middleware = ledgerMiddleware(

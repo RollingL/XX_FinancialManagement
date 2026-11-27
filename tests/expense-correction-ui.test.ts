@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { balance, decimal, paid } from '../prototype/src/model.ts';
-import type { Batch, Expense } from '../prototype/src/model.ts';
-import type { ExpenseEvent, LedgerState } from '../prototype/src/ledger.ts';
+import { balance, decimal, paid } from '../src/renderer/model.ts';
+import type { Batch, Expense } from '../src/renderer/model.ts';
+import type { ExpenseEvent, LedgerState } from '../src/renderer/ledger.ts';
 import {
   correctionBalance,
   correctionDraft,
@@ -12,8 +12,8 @@ import {
   correctionSession,
   expenseCorrections,
   expenseRevision,
-} from '../prototype/src/expense-correction.ts';
-import { paginate } from '../prototype/src/records.ts';
+} from '../src/renderer/expense-correction.ts';
+import { paginate } from '../src/renderer/records.ts';
 
 // Entirely synthetic fixtures. No files, ledger instances, screenshots or services.
 const expense = (extra: Partial<Expense> = {}): Expense => ({

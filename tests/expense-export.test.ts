@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { Batch, Expense } from '../prototype/src/model.ts';
-import type { Invoice, LedgerState } from '../prototype/src/ledger.ts';
-import { balance } from '../prototype/src/model.ts';
-import { paginate } from '../prototype/src/records.ts';
+import type { Batch, Expense } from '../src/renderer/model.ts';
+import type { Invoice, LedgerState } from '../src/renderer/ledger.ts';
+import { balance } from '../src/renderer/model.ts';
+import { paginate } from '../src/renderer/records.ts';
 import {
   expenseCsv,
   expenseFilterError,
   expenseStatus,
   filterExpenses,
-} from '../prototype/src/expense-export.ts';
-import type { ExpenseFilters } from '../prototype/src/expense-export.ts';
+} from '../src/renderer/expense-export.ts';
+import type { ExpenseFilters } from '../src/renderer/expense-export.ts';
 
 const expense = (id: number, changes: Partial<Expense> = {}): Expense => ({
   id,

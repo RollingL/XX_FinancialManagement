@@ -6,7 +6,7 @@ const fs = require('node:fs'),
 const { EventEmitter } = require('node:events'),
   { pathToFileURL } = require('node:url'),
   { randomUUID } = require('node:crypto');
-const mainFile = path.resolve(__dirname, '../spike/main.cjs'),
+const mainFile = path.resolve(__dirname, '../src/main/main.cjs'),
   source = fs.readFileSync(mainFile, 'utf8');
 const base = path.resolve(path.sep, 'synthetic-electron-main'),
   USER = path.join(base, 'user'),
@@ -197,7 +197,7 @@ function harness(options = {}) {
       };
     if (name === './windows-runtime.cjs')
       return { configureWindowsPortable: () => options.portable || null };
-    if (name === './trial-ledger.cjs')
+    if (name === './ledger.cjs')
       return { createLedger: (...args) => factory('createLedger', args) };
     if (name === './managed-ledger.cjs')
       return { createManagedLedger: (...args) => factory('createManagedLedger', args) };

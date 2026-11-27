@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { localDate, localDateLabel } from '../prototype/src/local-date.ts';
-import { reimbursementRows } from '../prototype/src/reimbursement-draft.ts';
-import { allocate, rowCents, sum, validateAllocation } from '../prototype/src/model.ts';
-import type { Expense, Batch } from '../prototype/src/model.ts';
+import { localDate, localDateLabel } from '../src/renderer/local-date.ts';
+import { reimbursementRows } from '../src/renderer/reimbursement-draft.ts';
+import { allocate, rowCents, sum, validateAllocation } from '../src/renderer/model.ts';
+import type { Expense, Batch } from '../src/renderer/model.ts';
 const expenses: Expense[] = [
   {
     id: 1,

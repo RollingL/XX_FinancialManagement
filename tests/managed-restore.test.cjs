@@ -5,8 +5,8 @@ const fs = require('node:fs'),
   path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const Database = require('better-sqlite3');
-const { createManagedLedger } = require('../spike/managed-ledger.cjs');
-const { verifyBackup } = require('../spike/ledger-backup.cjs');
+const { createManagedLedger } = require('../src/main/managed-ledger.cjs');
+const { verifyBackup } = require('../src/main/ledger-backup.cjs');
 const { syntheticPng } = require('./synthetic-image.cjs');
 function fixture(t) {
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-restore-ui-'))),

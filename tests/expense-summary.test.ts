@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { expenseSummary } from '../prototype/src/expense-summary.ts';
-import type { Expense } from '../prototype/src/model.ts';
+import { expenseSummary } from '../src/renderer/expense-summary.ts';
+import type { Expense } from '../src/renderer/model.ts';
 
 test('费用支出涵盖跨年、跨月和当日全部费用，分类之和与总额精确到分一致', () => {
   const expenses: Expense[] = [

@@ -61,7 +61,7 @@ DWORD supervise(bool probe, bool diagnostics) {
     const auto separator = launcher.find_last_of(L"\\/");
     if (separator == std::wstring::npos) { SetLastError(ERROR_BAD_PATHNAME); fail(L"读取程序目录"); }
     const std::wstring root = launcher.substr(0, separator);
-    const std::wstring executable = root + L"\\app\\xx-finance-stage0.exe";
+    const std::wstring executable = root + L"\\app\\qianlai-app.exe";
     std::wstring command = L"\"" + executable + L"\" --qianlai-supervised";
     if (probe) command += L" --probe";
     if (diagnostics) command += L" --qianlai-diagnostics";

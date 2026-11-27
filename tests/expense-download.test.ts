@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { downloadExpenseCsv } from '../prototype/src/expense-download.ts';
+import { downloadExpenseCsv } from '../src/renderer/expense-download.ts';
 
 function fixture(t: any, fail = false) {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'document');

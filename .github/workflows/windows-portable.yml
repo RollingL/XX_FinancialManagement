@@ -1,4 +1,4 @@
-name: Windows x64 offline trial candidate
+name: Windows portable package
 
 # Manual only: each run uses GitHub Actions minutes, so the project owner starts it.
 on:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-offline-trial-${{ github.ref }}
+  group: windows-portable-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -29,7 +29,7 @@ jobs:
           node-version: 26.10.0
           architecture: x64
       - name: Build and check the portable candidate
-        run: ./spike/build-windows-trial.ps1
+        run: ./scripts/windows/build-portable.ps1
       - name: Store candidate privately for USB transfer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

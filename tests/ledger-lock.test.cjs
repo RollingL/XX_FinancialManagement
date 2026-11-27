@@ -6,9 +6,9 @@ const fs = require('node:fs'),
 const { spawnSync, spawn } = require('node:child_process'),
   { once } = require('node:events');
 const { randomUUID } = require('node:crypto');
-const { createManagedLedger } = require('../spike/managed-ledger.cjs');
-const { acquireLedgerLock } = require('../spike/ledger-lock.cjs');
-const identity = require('../spike/process-identity.cjs');
+const { createManagedLedger } = require('../src/main/managed-ledger.cjs');
+const { acquireLedgerLock } = require('../src/main/ledger-lock.cjs');
+const identity = require('../src/main/process-identity.cjs');
 const Database = require('better-sqlite3');
 
 function fixture(t) {
@@ -30,7 +30,7 @@ test('an abnormal owner exit can reopen a synthetic ledger with committed money 
   await ledger.command({kind:'advance',requestId:randomUUID(),generation:state.generation,advance:{amount:12345,date:'2026-10-16',note:'synthetic abnormal exit'}});
   process.exit(17);})().catch(e=>{console.error(e);process.exit(1);});
  `,
-      path.resolve('spike/managed-ledger.cjs'),
+      path.resolve('src/main/managed-ledger.cjs'),
       root,
     ],
     { encoding: 'utf8' },
@@ -62,7 +62,7 @@ function abandonedOwner(root) {
     [
       '-e',
       'require(process.argv[1]).acquireLedgerLock(process.argv[2]);process.exit(17)',
-      path.resolve('spike/ledger-lock.cjs'),
+      path.resolve('src/main/ledger-lock.cjs'),
       root,
     ],
     { encoding: 'utf8' },
@@ -230,7 +230,7 @@ test('simultaneous processes recovering one abandoned lock admit exactly one liv
    if(message==='close'){if(lock)lock.release();process.exit(0);}
   });process.send({ready:true});`;
   const children = Array.from({ length: 4 }, () =>
-    spawn(process.execPath, ['-e', script, path.resolve('spike/ledger-lock.cjs'), root], {
+    spawn(process.execPath, ['-e', script, path.resolve('src/main/ledger-lock.cjs'), root], {
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
     }),
   );

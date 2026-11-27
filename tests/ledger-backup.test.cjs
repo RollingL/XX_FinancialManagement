@@ -5,8 +5,8 @@ const fs = require('node:fs'),
   os = require('node:os');
 const { randomUUID, createHash } = require('node:crypto');
 const Database = require('better-sqlite3');
-const { createLedger } = require('../spike/trial-ledger.cjs');
-const { createBackup, verifyBackup, restoreBackup } = require('../spike/ledger-backup.cjs');
+const { createLedger } = require('../src/main/ledger.cjs');
+const { createBackup, verifyBackup, restoreBackup } = require('../src/main/ledger-backup.cjs');
 // Generated 1 x 1 PNG, containing no receipt or user data.
 const png = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGOYVnECAAN+AdcpgjGUAAAAAElFTkSuQmCC',

@@ -11,7 +11,7 @@ import {
   rowCents,
   sum,
   validateAllocation,
-} from '../prototype/src/model.ts';
+} from '../src/renderer/model.ts';
 import { demo } from './model-fixture.ts';
 test('金额精确到分并拒绝舍入和不安全整数', () => {
   assert.equal(cents('0.01'), 1);

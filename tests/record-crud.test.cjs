@@ -5,7 +5,7 @@ const test = require('node:test'),
   path = require('node:path'),
   { randomUUID } = require('node:crypto'),
   Database = require('better-sqlite3');
-const { createLedger } = require('../spike/trial-ledger.cjs');
+const { createLedger } = require('../src/main/ledger.cjs');
 const png = fs.readFileSync(path.join(__dirname, 'fixtures/synthetic-payment.png'));
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-crud-'));

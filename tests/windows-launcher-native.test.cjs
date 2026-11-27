@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { launchScript } = require('../spike/prepare-windows-portable.cjs');
+const { launchScript } = require('../scripts/windows/prepare-portable.cjs');
 const available =
   process.platform === 'win32' &&
   process.env.QIANLAI_TEST_LAUNCHER &&
@@ -34,7 +34,7 @@ function fixture(t) {
   fs.copyFileSync(process.env.QIANLAI_TEST_LAUNCHER, path.join(root, 'Qianlai.exe'));
   fs.copyFileSync(
     process.env.QIANLAI_TEST_LAUNCHER_CHILD,
-    path.join(root, 'app', 'xx-finance-stage0.exe'),
+    path.join(root, 'app', 'qianlai-app.exe'),
   );
   t.after(async () => {
     for (const { child, closed } of children) {

@@ -11,7 +11,7 @@ async function client(t: any, command: (input: any) => Promise<any>) {
     if (previous) Object.defineProperty(globalThis, 'window', previous);
     else Reflect.deleteProperty(globalThis, 'window');
   });
-  return (await import(`../prototype/src/ledger.ts?case=${Math.random()}`)).ledgerCommand;
+  return (await import(`../src/renderer/ledger.ts?case=${Math.random()}`)).ledgerCommand;
 }
 const empty = (generation?: string) => ({
   expenses: [],
@@ -101,7 +101,7 @@ test('HTTP transport retains source protections and the old token after a failed
       },
     );
   };
-  const { ledgerCommand } = await import(`../prototype/src/ledger.ts?case=${Math.random()}`);
+  const { ledgerCommand } = await import(`../src/renderer/ledger.ts?case=${Math.random()}`);
   await ledgerCommand({ kind: 'read' });
   for (let i = 0; i < 2; i++)
     await assert.rejects(

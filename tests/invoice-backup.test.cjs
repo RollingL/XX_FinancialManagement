@@ -5,8 +5,8 @@ const test = require('node:test'),
   path = require('node:path'),
   { randomUUID } = require('node:crypto'),
   Database = require('better-sqlite3');
-const { createManagedLedger } = require('../spike/managed-ledger.cjs');
-const { inspectDatabase, verifyBackup, restoreBackup } = require('../spike/ledger-backup.cjs');
+const { createManagedLedger } = require('../src/main/managed-ledger.cjs');
+const { inspectDatabase, verifyBackup, restoreBackup } = require('../src/main/ledger-backup.cjs');
 const { seedLegacyInvoices } = require('./legacy-invoice-fixture.cjs');
 async function fixture(t) {
   const parent = fs.realpathSync(

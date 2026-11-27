@@ -5,7 +5,7 @@ const test = require('node:test'),
   path = require('node:path'),
   { randomUUID } = require('node:crypto'),
   Database = require('better-sqlite3');
-const { createManagedLedger } = require('../spike/managed-ledger.cjs');
+const { createManagedLedger } = require('../src/main/managed-ledger.cjs');
 const { seedLegacyInvoices } = require('./legacy-invoice-fixture.cjs');
 function fixture(t) {
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-reminder-'))),

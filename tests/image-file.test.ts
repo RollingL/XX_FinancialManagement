@@ -5,7 +5,7 @@ import {
   MAX_IMAGE_PIXELS,
   singleImage,
   validateImageFile,
-} from '../prototype/src/image-file.ts';
+} from '../src/renderer/image-file.ts';
 const bitmapDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'createImageBitmap');
 Object.defineProperty(globalThis, 'createImageBitmap', {
   configurable: true,

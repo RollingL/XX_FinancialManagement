@@ -7,7 +7,7 @@ const {
   launchScript,
   filesBelow,
   verifyInventory,
-} = require('../spike/prepare-windows-portable.cjs');
+} = require('../scripts/windows/prepare-portable.cjs');
 test('optional diagnostics leave business path creation to the runtime and preserve safe log/exit behavior', () => {
   for (const probe of [false, true]) {
     const script = launchScript('synthetic-build-id', probe);

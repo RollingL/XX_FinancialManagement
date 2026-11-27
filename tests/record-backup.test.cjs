@@ -5,8 +5,8 @@ const fs = require('node:fs'),
   path = require('node:path');
 const { randomUUID } = require('node:crypto'),
   Database = require('better-sqlite3');
-const { createManagedLedger } = require('../spike/managed-ledger.cjs');
-const { verifyBackup, restoreBackup, inspectDatabase } = require('../spike/ledger-backup.cjs');
+const { createManagedLedger } = require('../src/main/managed-ledger.cjs');
+const { verifyBackup, restoreBackup, inspectDatabase } = require('../src/main/ledger-backup.cjs');
 const { syntheticPng } = require('./synthetic-image.cjs');
 const image = (n) => ({ base64: syntheticPng({ seed: n }).toString('base64') });
 function fixture(t) {

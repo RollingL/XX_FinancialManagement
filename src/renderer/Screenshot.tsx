@@ -7,7 +7,7 @@ type ScreenshotKind = 'expense' | 'advance';
 
 // Lets the user attach one PNG / JPEG as evidence. The picture is only kept
 // with the record when the form is saved; nothing is read from it.
-export default function ExpenseScreenshot({
+export default function ScreenshotPicker({
   kind = 'expense',
   onFile,
   onBusy,
@@ -156,7 +156,7 @@ export default function ExpenseScreenshot({
   );
 }
 
-export function ExpenseAttachment({ id, kind = 'expense' }: { id: string; kind?: ScreenshotKind }) {
+export function SavedScreenshot({ id, kind = 'expense' }: { id: string; kind?: ScreenshotKind }) {
   const [url, setUrl] = useState(''),
     [error, setError] = useState('');
   const label = kind === 'advance' ? '到账截图' : '支付截图';

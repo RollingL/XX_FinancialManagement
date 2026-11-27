@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { cents, decimal, money } from './model.ts';
 import { ledgerCommand } from './ledger.ts';
 import type { LedgerState } from './ledger.ts';
-import { ExpenseAttachment } from './ExpenseScreenshot.tsx';
+import { SavedScreenshot } from './Screenshot.tsx';
 
 export default function AdvanceEditor({
   state,
@@ -110,7 +110,7 @@ export default function AdvanceEditor({
           </p>
         )}
         {original.details?.attachmentId && (
-          <ExpenseAttachment id={original.details.attachmentId} kind="advance" />
+          <SavedScreenshot id={original.details.attachmentId} kind="advance" />
         )}
         {deleting && (
           <section role="alert" className="error">

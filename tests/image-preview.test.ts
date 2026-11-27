@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm';
 import { rolldown } from 'rolldown';
 
 const bundle = await rolldown({
-  input: fileURLToPath(new URL('../prototype/src/ImagePreview.tsx', import.meta.url)),
+  input: fileURLToPath(new URL('../src/renderer/ImagePreview.tsx', import.meta.url)),
   external: () => true,
 });
 const compiled = await bundle.generate({ format: 'cjs', exports: 'named' });

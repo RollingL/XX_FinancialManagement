@@ -5,8 +5,8 @@ const fs = require('node:fs'),
   path = require('node:path'),
   { randomUUID } = require('node:crypto');
 const Database = require('better-sqlite3');
-const { createLedger } = require('../spike/trial-ledger.cjs');
-const { MAX_IMAGE_BYTES } = require('../spike/image-check.cjs');
+const { createLedger } = require('../src/main/ledger.cjs');
+const { MAX_IMAGE_BYTES } = require('../src/main/image-check.cjs');
 const { pngHeaderOnly } = require('./synthetic-image.cjs');
 
 // Generated 1 × 1 PNG; no payment screenshot, receipt text or user data.

@@ -5,7 +5,7 @@ const fs = require('node:fs'),
   path = require('node:path'),
   { randomUUID, createHash } = require('node:crypto');
 const Database = require('better-sqlite3'),
-  { createLedger } = require('../spike/trial-ledger.cjs');
+  { createLedger } = require('../src/main/ledger.cjs');
 const png = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGOYVnECAAN+AdcpgjGUAAAAAElFTkSuQmCC',
   'base64',
@@ -466,7 +466,7 @@ test('malformed correction history is preserved and rejected instead of being ov
 });
 
 test('managed reset removes correction history and stale generations or expected values cannot change a reused expense ID', async (t) => {
-  const { createManagedLedger } = require('../spike/managed-ledger.cjs'),
+  const { createManagedLedger } = require('../src/main/managed-ledger.cjs'),
     base = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-correction-generation-')),
     root = path.join(base, 'managed'),
     ledger = createManagedLedger(root);

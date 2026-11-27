@@ -5,9 +5,9 @@ const fs = require('node:fs'),
   path = require('node:path');
 const { randomUUID } = require('node:crypto'),
   { spawnSync } = require('node:child_process');
-const { createManagedLedger, acquireManagedLock } = require('../spike/managed-ledger.cjs');
-const { parse, main: maintenance } = require('../spike/ledger-maintenance.cjs');
-const { createLedger } = require('../spike/trial-ledger.cjs');
+const { createManagedLedger, acquireManagedLock } = require('../src/main/managed-ledger.cjs');
+const { parse, main: maintenance } = require('../src/main/ledger-maintenance.cjs');
+const { createLedger } = require('../src/main/ledger.cjs');
 const Database = require('better-sqlite3');
 const { syntheticPng } = require('./synthetic-image.cjs');
 const generations = new WeakMap();
@@ -128,7 +128,7 @@ test('fresh root has an isolated identity, persists unchanged, and excludes a se
     [
       '-e',
       'const {createManagedLedger}=require(process.argv[1]);try{createManagedLedger(process.argv[2]);process.exitCode=9;}catch(e){process.stderr.write(e.message);process.exitCode=3;}',
-      path.resolve('spike/managed-ledger.cjs'),
+      path.resolve('src/main/managed-ledger.cjs'),
       f.root,
     ],
     { encoding: 'utf8' },

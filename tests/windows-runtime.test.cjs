@@ -3,7 +3,7 @@ const test = require('node:test'),
   fs = require('node:fs'),
   path = require('node:path'),
   os = require('node:os');
-const { configureWindowsPortable } = require('../spike/windows-runtime.cjs');
+const { configureWindowsPortable } = require('../src/main/windows-runtime.cjs');
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-runtime-'));
   fs.mkdirSync(path.join(root, 'app', 'resources'), { recursive: true });

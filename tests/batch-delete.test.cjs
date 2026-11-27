@@ -5,7 +5,7 @@ const fs = require('node:fs'),
   path = require('node:path'),
   { randomUUID } = require('node:crypto');
 const Database = require('better-sqlite3');
-const { createLedger } = require('../spike/trial-ledger.cjs');
+const { createLedger } = require('../src/main/ledger.cjs');
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-batch-delete-'));

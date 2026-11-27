@@ -3,7 +3,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { checkWindowsPackage, checkWindowsLauncher } = require('../spike/windows-package-check.cjs');
+const {
+  checkWindowsPackage,
+  checkWindowsLauncher,
+} = require('../scripts/windows/package-check.cjs');
 const win = { platform: 'win32', arch: 'x64' };
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-package-input-'));

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { rolldown } from 'rolldown';
 const bundle = await rolldown({
-  input: fileURLToPath(new URL('../prototype/src/AdvanceEditor.tsx', import.meta.url)),
+  input: fileURLToPath(new URL('../src/renderer/AdvanceEditor.tsx', import.meta.url)),
   external: () => true,
 });
 const output = await bundle.generate({ format: 'cjs', exports: 'named' });
@@ -49,7 +49,7 @@ function harness() {
         return { expenses: [], batches: [], advances: [900] };
       },
     },
-    './ExpenseScreenshot.tsx': { ExpenseAttachment: () => null },
+    './Screenshot.tsx': { SavedScreenshot: () => null },
   };
   const exports: any = {};
   runInNewContext(output.output[0].code, {

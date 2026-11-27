@@ -34,7 +34,7 @@ function launchScript(id, probe = false) {
     `>"%LOG_DIR%\\status.txt" echo Build=${id}`,
     '>>"%LOG_DIR%\\status.txt" echo Started=%DATE% %TIME%',
     'ver >>"%LOG_DIR%\\status.txt"',
-    '"%SystemRoot%\\System32\\tasklist.exe" /fi "IMAGENAME eq xx-finance-stage0.exe" /fo list >"%LOG_DIR%\\processes-before.txt" 2>&1',
+    '"%SystemRoot%\\System32\\tasklist.exe" /fi "IMAGENAME eq qianlai-app.exe" /fo list >"%LOG_DIR%\\processes-before.txt" 2>&1',
     'if exist "%~dp0trial-data\\user-data\\stage0-trial\\.writer-lock" (>>"%LOG_DIR%\\status.txt" echo AnchorLock=present) else (>>"%LOG_DIR%\\status.txt" echo AnchorLock=absent)',
     'for /d %%D in ("%~dp0trial-data\\user-data\\restored-*") do if exist "%%D\\.writer-lock" >>"%LOG_DIR%\\status.txt" echo RestoredLock=%%~nxD',
     'echo Diagnostic mode only. For daily use, double-click Qianlai.exe.',
@@ -45,7 +45,7 @@ function launchScript(id, probe = false) {
     'set "LAUNCH_EXIT=%errorlevel%"',
     '>>"%LOG_DIR%\\status.txt" echo ExitCode=%LAUNCH_EXIT%',
     '>>"%LOG_DIR%\\status.txt" echo Ended=%DATE% %TIME%',
-    '"%SystemRoot%\\System32\\tasklist.exe" /fi "IMAGENAME eq xx-finance-stage0.exe" /fo list >"%LOG_DIR%\\processes-after.txt" 2>&1',
+    '"%SystemRoot%\\System32\\tasklist.exe" /fi "IMAGENAME eq qianlai-app.exe" /fo list >"%LOG_DIR%\\processes-after.txt" 2>&1',
     'if exist "%~dp0trial-data\\user-data\\stage0-trial\\.writer-lock" (>>"%LOG_DIR%\\status.txt" echo AnchorLock=present) else (>>"%LOG_DIR%\\status.txt" echo AnchorLock=absent)',
     'for /d %%D in ("%~dp0trial-data\\user-data\\restored-*") do if exist "%%D\\.writer-lock" >>"%LOG_DIR%\\status.txt" echo RestoredLock=%%~nxD',
     'if not "%LAUNCH_EXIT%"=="0" goto :runtime_failed',
@@ -122,7 +122,7 @@ function probePackage(app, launcher) {
       PATH: path.join(process.env.SystemRoot, 'System32'),
     };
     delete env.ELECTRON_RUN_AS_NODE;
-    const output = execFileSync(launcher || path.join(app, 'xx-finance-stage0.exe'), ['--probe'], {
+    const output = execFileSync(launcher || path.join(app, 'qianlai-app.exe'), ['--probe'], {
       env,
       encoding: 'utf8',
       maxBuffer: 4 * 1024 * 1024,
@@ -172,12 +172,12 @@ async function prepare() {
     return;
   }
   assert.equal(process.argv.length, 2);
-  const root = path.resolve(__dirname, '..'),
+  const root = path.resolve(__dirname, '..', '..'),
     sha = process.env.GITHUB_SHA;
   assert.match(sha || '', /^[a-f0-9]{40}$/);
   assert.match(process.env.GITHUB_RUN_ID || '', /^\d+$/);
   const buildId = `qianlai-${sha}-${process.env.GITHUB_RUN_ID}`;
-  const app = path.join(root, 'out', 'XXFinanceStage0-win32-x64');
+  const app = path.join(root, 'out', 'Qianlai-win32-x64');
   const destination = path.join(
     root,
     'out',
@@ -196,7 +196,7 @@ async function prepare() {
     );
   assert.ok(entries.some((entry) => entry.replaceAll('\\', '/').endsWith('/dist/index.html')));
   const launcher = path.join(root, 'out', 'windows-launcher', 'Qianlai.exe');
-  require('./windows-package-check.cjs').checkWindowsLauncher(launcher);
+  require('./package-check.cjs').checkWindowsLauncher(launcher);
   fs.mkdirSync(destination, { recursive: true });
   fs.cpSync(app, path.join(destination, 'app'), { recursive: true });
   fs.copyFileSync(launcher, path.join(destination, 'Qianlai.exe'));

@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { checkImage, MAX_IMAGE_BYTES } = require('../spike/image-check.cjs');
+const { checkImage, MAX_IMAGE_BYTES } = require('../src/main/image-check.cjs');
 const { syntheticPng, pngHeaderOnly } = require('./synthetic-image.cjs');
 
 const png = fs.readFileSync(path.join(__dirname, 'fixtures/synthetic-payment.png'));

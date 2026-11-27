@@ -666,7 +666,7 @@ td:first-child {
   color: var(--muted);
   margin: 8px 0 0;
 }
-.prototype-note {
+.footer-note {
   font-size: 11px;
   color: var(--muted);
   line-height: 1.8;
@@ -1302,7 +1302,7 @@ dd {
   .task-item button {
     max-width: 220px;
   }
-  .prototype-note {
+  .footer-note {
     text-align: left;
   }
   .form-row {

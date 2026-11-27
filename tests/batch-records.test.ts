@@ -5,9 +5,9 @@ import {
   batchTotal,
   batchRecords,
   batchRecordsSummary,
-} from '../prototype/src/batch-records.ts';
-import { paginate } from '../prototype/src/records.ts';
-import type { Batch, Expense } from '../prototype/src/model.ts';
+} from '../src/renderer/batch-records.ts';
+import { paginate } from '../src/renderer/records.ts';
+import type { Batch, Expense } from '../src/renderer/model.ts';
 
 // All amounts, dates, merchants and notes here are synthetic test data.
 const expenses: Expense[] = Array.from({ length: 8 }, (_, index) => ({

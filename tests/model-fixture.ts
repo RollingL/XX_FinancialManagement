@@ -1,4 +1,4 @@
-import type { Expense, Batch } from '../prototype/src/model.ts';
+import type { Expense, Batch } from '../src/renderer/model.ts';
 export function demo() {
   const expenses: Expense[] = [
     {

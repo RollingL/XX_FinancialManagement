@@ -1,4 +1,4 @@
-// Stage 0 local trial ledger: deliberately no migrations, imports or production recovery UI.
+// The ledger: one SQLite file plus an attachments folder, one writer at a time.
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');

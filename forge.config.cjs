@@ -2,12 +2,12 @@ module.exports = {
   hooks: {
     prePackage: async (_config, platform, arch) => {
       if (platform === 'win32')
-        require('./spike/windows-package-check.cjs').checkWindowsPackage(__dirname, arch);
+        require('./scripts/windows/package-check.cjs').checkWindowsPackage(__dirname, arch);
     },
   },
   packagerConfig: {
-    name: 'XXFinanceStage0',
-    executableName: 'xx-finance-stage0',
+    name: 'Qianlai',
+    executableName: 'qianlai-app',
     asar: true,
     ignore: [
       /^\/out(?:\/|$)/,
@@ -18,8 +18,8 @@ module.exports = {
       /^\/evidence/,
       /^\/docs/,
       /^\/tests/,
-      /^\/prototype/,
-      /^\/spike\/windows-launcher\.cpp$/,
+      /^\/scripts(?:\/|$)/,
+      /^\/src\/renderer(?:\/|$)/,
       /^\/\.impeccable/,
     ],
   },
@@ -28,9 +28,9 @@ module.exports = {
     {
       name: '@electron-forge/maker-squirrel',
       config: {
-        name: 'xx_finance_stage0',
-        authors: 'XXFinance',
-        description: 'Stage 0 dependency probe; not a production ledger',
+        name: 'qianlai',
+        authors: 'Qianlai',
+        description: '钱来：单人离线报销台账',
       },
     },
     { name: '@electron-forge/maker-zip', platforms: ['darwin'] },

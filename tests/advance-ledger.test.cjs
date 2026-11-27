@@ -5,7 +5,7 @@ const fs = require('node:fs'),
   path = require('node:path'),
   { randomUUID } = require('node:crypto');
 const Database = require('better-sqlite3');
-const { createLedger } = require('../spike/trial-ledger.cjs');
+const { createLedger } = require('../src/main/ledger.cjs');
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-advance-test-'));
   let ledger = createLedger(root);
@@ -144,7 +144,7 @@ test('failure after state update rolls back amount, metadata and operation; same
 });
 test('shared funds go negative then positive; reimbursement and cancellation preserve complete cash contents', async (t) => {
   const f = fixture(t);
-  const { balance, remaining } = await import('../prototype/src/model.ts');
+  const { balance, remaining } = await import('../src/renderer/model.ts');
   await f.ledger.command(advance(300000));
   await f.ledger.command({
     kind: 'expense',

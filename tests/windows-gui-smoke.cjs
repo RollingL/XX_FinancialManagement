@@ -173,7 +173,7 @@ async function run(root, iteration, diagnosticCmd = false) {
       startup.some((event) => event.stage === 'page-loaded' && event.pid === main.pid),
       `Real GUI did not load: ${diagnostic}`,
     );
-    const executable = path.join(root, 'app', 'xx-finance-stage0.exe');
+    const executable = path.join(root, 'app', 'qianlai-app.exe');
     const records = powershell({
       action: 'capture',
       pid: main.pid,
@@ -245,7 +245,7 @@ async function main() {
     relative && !relative.startsWith('..') && !path.isAbsolute(relative),
     'Only the fresh runner-temp extraction is accepted',
   );
-  require('../spike/prepare-windows-portable.cjs').verifyInventory(
+  require('../scripts/windows/prepare-portable.cjs').verifyInventory(
     root,
     JSON.parse(fs.readFileSync(path.join(root, 'file-hashes.json'), 'utf8')),
   );
