@@ -6,7 +6,7 @@ import { rolldown } from 'rolldown';
 import { singleImage, validateImageFile, MAX_IMAGE_BYTES } from '../prototype/src/image-file.ts';
 
 // Compile only this component in memory. External modules are explicit fakes;
-// no ledger, OCR worker, browser, or user images are opened by these tests.
+// no ledger, browser, or user images are opened by these tests.
 const bundle = await rolldown({
   input: fileURLToPath(new URL('../prototype/src/ExpenseScreenshot.tsx', import.meta.url)),
   external: () => true,
@@ -59,7 +59,6 @@ function harness(
     disabled?: boolean;
     attachment?: boolean;
     validate?: typeof validateImageFile;
-    recognize?: (file: File, signal: AbortSignal) => Promise<any>;
     read?: () => Promise<any>;
   } = {},
 ) {
@@ -69,12 +68,10 @@ function harness(
   let cursor = 0,
     tree: Node;
   const files: Array<File | null> = [],
-    fields: any[] = [],
     busy: boolean[] = [],
     created: string[] = [],
     revoked: string[] = [],
-    reads: any[] = [],
-    recognitions: File[] = [];
+    reads: any[] = [];
   const react = {
     useState(initial: any) {
       const index = cursor++;
@@ -111,20 +108,6 @@ function harness(
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' },
     './ImagePreview.tsx': ({ src, alt }: { src: string; alt: string }) => jsx('img', { src, alt }),
     './image-file.ts': { singleImage, validateImageFile: options.validate ?? validateImageFile },
-    './model.ts': { decimal: (cents: number) => (cents / 100).toFixed(2) },
-    './ocr.ts': {
-      recognizeScreenshot: (file: File, signal: AbortSignal) => {
-        recognitions.push(file);
-        return (
-          options.recognize?.(file, signal) ??
-          Promise.resolve({
-            expense_fields: { amount_cents: 1234, date: '2026-10-12', merchant: '合成商户' },
-            extraction: { fields: { account_balance: null, refund: null } },
-            texts: ['合成识别'],
-          })
-        );
-      },
-    },
     './ledger.ts': {
       ledgerCommand: (command: any) => {
         reads.push(command);
@@ -156,7 +139,6 @@ function harness(
     kind: options.kind ?? 'advance',
     disabled: options.disabled ?? false,
     onFile: (file: File | null) => files.push(file),
-    onFields: (value: any) => fields.push(value),
     onBusy: (value: boolean) => busy.push(value),
   };
   function render() {
@@ -178,12 +160,10 @@ function harness(
   render();
   return {
     files,
-    fields,
     busy,
     created,
     revoked,
     reads,
-    recognitions,
     props,
     render,
     find,
@@ -212,14 +192,13 @@ function harness(
   };
 }
 
-test('到账截图保留可选上传，不识别或自动填写金额', () => {
+test('到账截图是可选上传，不会自动填写金额', () => {
   const h = harness();
   assert.equal(h.render().props['aria-label'], '到账截图');
   assert.equal(text(h.find('label')), '上传到账截图（可选）');
   assert.equal(h.find('input').props.type, 'file');
   assert.equal(h.find('input').props.accept, 'image/png,image/jpeg');
-  assert.match(text(h.render()), /不识别或自动填写金额/);
-  assert.equal(h.recognitions.length, 0);
+  assert.match(text(h.render()), /不会自动填写金额/);
   h.unmount();
 });
 
@@ -239,8 +218,6 @@ test('到账截图选择 PNG/JPEG 仅回传附件，替换和移除释放 URL �
   h.find('button', '移除到账截图').props.onClick();
   assert.equal(h.files.at(-1), null);
   assert.deepEqual(h.revoked, ['blob:synthetic-0', 'blob:synthetic-1']);
-  assert.equal(h.fields.length, 0);
-  assert.equal(h.recognitions.length, 0);
   assert.equal(h.reads.length, 0);
   assert.equal(
     nodes(h.render()).some((node) => node.type === 'img'),
@@ -268,12 +245,11 @@ test('到账截图拖拽阻止文件导航，校验忙碌期间的重复拖拽�
   await settle();
   assert.equal(h.files[0], image);
   assert.deepEqual(h.busy, [true, false]);
-  assert.equal(h.recognitions.length, 0);
   h.unmount();
   assert.deepEqual(h.revoked, h.created);
 });
 
-test('发票点击和拖拽拒绝多图、非图片、超限大小、伪造签名及超限像素', async (t) => {
+test('截图点击和拖拽拒绝多图、非图片、超限大小、伪造签名及超限像素', async (t) => {
   const h = harness(),
     large = png();
   Object.defineProperty(large, 'size', { value: MAX_IMAGE_BYTES + 1 });
@@ -299,12 +275,11 @@ test('发票点击和拖拽拒绝多图、非图片、超限大小、伪造签�
   assert.match(text(h.render()), /2000 万像素/);
   assert.equal(h.files.length, 0);
   assert.equal(h.created.length, 0);
-  assert.equal(h.recognitions.length, 0);
   assert.equal(h.busy.at(-1), false);
   h.unmount();
 });
 
-test('禁用入口不开始校验，发票卸载后迟到的校验不能回写或创建预览', async () => {
+test('禁用入口不开始校验，卸载后迟到的校验不能回写或创建预览', async () => {
   const gate = deferred<void>();
   let checks = 0,
     signal: AbortSignal | undefined;
@@ -325,46 +300,25 @@ test('禁用入口不开始校验，发票卸载后迟到的校验不能回写�
   gate.resolve();
   await settle();
   assert.equal(h.files.length, 0);
-  assert.equal(h.fields.length, 0);
   assert.equal(h.created.length, 0);
   assert.deepEqual(h.busy, [true, false]);
 });
 
-test('预支仍只保留截图；费用仍填识别字段，允许人工停止并忽略迟到 OCR', async () => {
-  const advance = harness({ kind: 'advance' });
-  advance.pick([png()]);
+test('费用截图和到账截图一样只回传附件，提示手动填写', async () => {
+  const expense = harness({ kind: 'expense' }),
+    image = png();
+  assert.equal(expense.render().props['aria-label'], '支付截图');
+  expense.pick([image]);
   await settle();
-  assert.equal(advance.recognitions.length, 0);
-  assert.equal(advance.fields.length, 0);
-  advance.find('button', '移除到账截图').props.onClick();
-  assert.equal(advance.fields.length, 0);
-  advance.unmount();
-  const expense = harness({ kind: 'expense' });
-  expense.pick([png()]);
-  await settle();
-  assert.equal(expense.recognitions.length, 1);
-  assert.equal(expense.fields.at(-1).amount, '12.34');
-  assert.match(text(expense.render()), /对照原图核对/);
+  assert.equal(expense.files[0], image);
+  assert.deepEqual(expense.busy, [true, false]);
+  assert.equal(expense.find('img').props.alt, '待保存费用的支付截图原图');
+  assert.match(text(expense.render()), /手动填写金额、日期和商户/);
+  expense.find('button', '移除支付截图').props.onClick();
+  assert.equal(expense.files.at(-1), null);
+  assert.equal(expense.reads.length, 0);
   expense.unmount();
-  const gate = deferred<any>();
-  let signal: AbortSignal | undefined;
-  const pending = harness({
-    kind: 'expense',
-    recognize: async (_file, value) => {
-      signal = value;
-      return gate.promise;
-    },
-  });
-  pending.pick([png()]);
-  await settle();
-  pending.find('button', '停止识别，手动填写').props.onClick();
-  assert.equal(signal?.aborted, true);
-  const count = pending.fields.length;
-  gate.resolve({ expense_fields: { amount_cents: 9999 } });
-  await settle();
-  assert.equal(pending.fields.length, count);
-  assert.equal(pending.busy.at(-1), false);
-  pending.unmount();
+  assert.deepEqual(expense.revoked, expense.created);
 });
 
 test('已保存到账附件只调用附件读取，标题/alt 清楚且卸载释放 URL', async () => {
@@ -375,7 +329,6 @@ test('已保存到账附件只调用附件读取，标题/alt 清楚且卸载释
   assert.equal(h.reads.length, 1);
   assert.equal(h.reads[0].kind, 'attachment');
   assert.equal(h.reads[0].id, 'synthetic-original');
-  assert.equal(h.recognitions.length, 0);
   h.unmount();
   assert.deepEqual(h.revoked, h.created);
   const late = deferred<any>(),

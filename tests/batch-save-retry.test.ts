@@ -62,7 +62,7 @@ async function fixture(
   transport?: (request: any, send: (request: any) => Promise<any>) => Promise<any>,
 ) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-batch-retry-')),
-    ledger = createLedger(root, {});
+    ledger = createLedger(root);
   t.after(() => {
     ledger.close();
     fs.rmSync(root, { recursive: true, force: true });

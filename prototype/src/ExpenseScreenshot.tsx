@@ -1,38 +1,35 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { recognizeScreenshot } from './ocr.ts';
-import type { OcrResult } from './ocr.ts';
 import { ledgerCommand } from './ledger.ts';
-import { decimal } from './model.ts';
 import { singleImage, validateImageFile } from './image-file.ts';
 import ImagePreview from './ImagePreview.tsx';
-type Fields = { amount: string; date: string; merchant: string };
+
 type ScreenshotKind = 'expense' | 'advance';
+
+// Lets the user attach one PNG / JPEG as evidence. The picture is only kept
+// with the record when the form is saved; nothing is read from it.
 export default function ExpenseScreenshot({
   kind = 'expense',
   onFile,
-  onFields,
   onBusy,
   disabled,
 }: {
   kind?: ScreenshotKind;
   onFile: (file: File | null) => void;
-  onFields?: (fields: Fields) => void;
   onBusy: (value: boolean) => void;
   disabled: boolean;
 }) {
   const [preview, setPreview] = useState(''),
     [message, setMessage] = useState(''),
     [busy, setBusy] = useState(false),
-    [result, setResult] = useState<OcrResult | null>(null),
     [dragging, setDragging] = useState(false);
   const controller = useRef<AbortController | null>(null),
     previewUrl = useRef(''),
     input = useRef<HTMLInputElement>(null),
-    handlers = useRef({ onFile, onFields, onBusy });
-  handlers.current = { onFile, onFields, onBusy };
+    handlers = useRef({ onFile, onBusy });
+  handlers.current = { onFile, onBusy };
   const advance = kind === 'advance',
-    expense = kind === 'expense',
     label = advance ? '到账截图' : '支付截图';
+
   useEffect(
     () => () => {
       const pending = controller.current;
@@ -43,28 +40,21 @@ export default function ExpenseScreenshot({
     },
     [],
   );
+
   function showPreview(url: string) {
     if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
     previewUrl.current = url;
     setPreview(url);
   }
-  function cancel() {
-    const pending = controller.current;
-    controller.current = null;
-    pending?.abort();
-    setBusy(false);
-    onBusy(false);
-    setMessage('已停止识别，可对照截图手动填写。');
-  }
+
   function clear() {
     if (disabled || controller.current) return;
     onFile(null);
-    if (expense) onFields?.({ amount: '', date: '', merchant: '' });
     showPreview('');
-    setResult(null);
     setMessage('');
     if (input.current) input.current.value = '';
   }
+
   async function upload(files: File[]) {
     // The ref also blocks a second drop before React has rendered the busy state.
     if (disabled || controller.current) return;
@@ -84,31 +74,12 @@ export default function ExpenseScreenshot({
       await validateImageFile(file, request.signal);
       if (controller.current !== request || request.signal.aborted) return;
       showPreview(URL.createObjectURL(file));
-      setResult(null);
       handlers.current.onFile(file);
-      if (!expense) {
-        setMessage('到账截图已准备好，确认保存预支时才会保留附件；请手动填写到账金额和日期。');
-        return;
-      }
-      handlers.current.onFields?.({ amount: '', date: '', merchant: '' });
-      setMessage('正在本机识别… 首次加载可能需要一些时间。');
-      try {
-        const found = await recognizeScreenshot(file, request.signal);
-        if (controller.current !== request || request.signal.aborted) return;
-        setResult(found);
-        const fields = found.expense_fields;
-        handlers.current.onFields?.({
-          amount: fields?.amount_cents ? decimal(fields.amount_cents) : '',
-          date: fields?.date || '',
-          merchant: fields?.merchant || '',
-        });
-        setMessage(
-          '已填写能够确定的字段，请对照原图核对；留空项请手动补充。保存时才会登记费用并保留截图。',
-        );
-      } catch (e) {
-        if (controller.current === request && !request.signal.aborted)
-          setMessage(`${(e as Error).message}。可以对照截图手动填写。`);
-      }
+      setMessage(
+        advance
+          ? '到账截图已准备好，保存预支时才会一起保留；请手动填写到账金额和日期。'
+          : '支付截图已准备好，保存费用时才会一起保留；请对照截图手动填写金额、日期和商户。',
+      );
     } catch (e) {
       if (controller.current === request && !request.signal.aborted)
         setMessage((e as Error).message);
@@ -120,18 +91,21 @@ export default function ExpenseScreenshot({
       }
     }
   }
+
   function dragOver(event: React.DragEvent<HTMLElement>) {
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = disabled || busy ? 'none' : 'copy';
     if (!disabled && !controller.current) setDragging(true);
   }
+
   function drop(event: React.DragEvent<HTMLElement>) {
     event.preventDefault();
     event.stopPropagation();
     setDragging(false);
     void upload(Array.from(event.dataTransfer.files));
   }
+
   return (
     <section
       className={`expense-screenshot${dragging ? ' dragging' : ''}`}
@@ -157,9 +131,7 @@ export default function ExpenseScreenshot({
       </label>
       <p className="help">
         点击选择或拖入单张 PNG / JPEG，最大 20 MiB、2000 万像素；不支持 PDF、SVG 或多图。
-        {advance
-          ? '仅保留到账凭证，不识别或自动填写金额。'
-          : '本机离线识别金额、日期和商户，可手动修正。'}
+        截图只作为凭证保存，不会自动填写金额。
       </p>
       {message && (
         <p role="status" className="help">
@@ -169,15 +141,9 @@ export default function ExpenseScreenshot({
       {preview && (
         <>
           <div className="screenshot-actions">
-            {busy && expense ? (
-              <button type="button" onClick={cancel}>
-                停止识别，手动填写
-              </button>
-            ) : (
-              <button type="button" disabled={disabled || busy} onClick={clear}>
-                {advance ? '移除到账截图' : '移除截图并清空识别字段'}
-              </button>
-            )}
+            <button type="button" disabled={disabled || busy} onClick={clear}>
+              移除{label}
+            </button>
           </div>
           <ImagePreview
             key={preview}
@@ -186,26 +152,10 @@ export default function ExpenseScreenshot({
           />
         </>
       )}
-      {result && (
-        <details>
-          <summary>查看识别参考信息</summary>
-          <p className="help">
-            账户余额：
-            {result.extraction.fields.account_balance === null
-              ? '未确定'
-              : decimal(result.extraction.fields.account_balance) + ' 元'}{' '}
-            · 退款金额：
-            {result.extraction.fields.refund === null
-              ? '未确定'
-              : decimal(result.extraction.fields.refund) + ' 元'}
-            。这些金额不会填入支出，也不自动冲减支出。
-          </p>
-          <pre className="ocr-raw">{result.texts.join('\n')}</pre>
-        </details>
-      )}
     </section>
   );
 }
+
 export function ExpenseAttachment({ id, kind = 'expense' }: { id: string; kind?: ScreenshotKind }) {
   const [url, setUrl] = useState(''),
     [error, setError] = useState('');

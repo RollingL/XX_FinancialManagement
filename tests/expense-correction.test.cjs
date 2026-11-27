@@ -11,9 +11,8 @@ const png = Buffer.from(
   'base64',
 );
 async function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-expense-correction-')),
-    service = { recognize: async () => ({ validated: true }) };
-  let ledger = createLedger(root, service);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-expense-correction-'));
+  let ledger = createLedger(root);
   const additional = [];
   t.after(() => {
     ledger.close();
@@ -27,10 +26,10 @@ async function fixture(t) {
     },
     reopen() {
       ledger.close();
-      ledger = createLedger(root, service);
+      ledger = createLedger(root);
     },
     another() {
-      const item = createLedger(root, service);
+      const item = createLedger(root);
       additional.push(item);
       return item;
     },

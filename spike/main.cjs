@@ -1,10 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
-const { createOcrService, MAX_BYTES } = require('./ocr-service.cjs');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
-const { execFile, spawn } = require('node:child_process');
-const { promisify } = require('node:util');
+const { spawn } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const isProbe = process.argv.includes('--probe');
 let portable;
@@ -80,7 +78,7 @@ try {
   app.exit(1);
   throw error;
 }
-// Startup diagnostics contain stages only, never ledger facts, IPC payloads or OCR output.
+// Startup diagnostics contain stages only, never ledger facts or IPC payloads.
 let diagnosticsPath;
 function startupEvent(stage, details = {}) {
   if (isProbe) return;
@@ -123,8 +121,7 @@ const managed = process.env.XX_FINANCE_MANAGED_TRIAL === '1';
 const userData = process.env.XX_FINANCE_USER_DATA_DIR,
   dataDir = process.env.XX_FINANCE_DATA_DIR,
   backupDestination = process.env.XX_FINANCE_BACKUP_DIR;
-let service,
-  ledger,
+let ledger,
   mainWindow,
   closing = false,
   closed = false,
@@ -165,11 +162,6 @@ try {
 function dispose() {
   return (disposal ??= (async () => {
     startupEvent('cleanup-start');
-    if (service?.close) await service.close();
-    else {
-      service?.stop();
-      await service?.finished;
-    }
     await Promise.allSettled([...pendingLedger]);
     await ledger?.close();
     startupEvent('cleanup-complete');
@@ -265,25 +257,7 @@ if (primary)
         try {
           const sqlite = await require('./sqlite-probe.cjs')(dir);
           if (sqlite?.status !== 'passed') throw Error('SQLite 依赖探针未通过');
-          const report = { sqlite, packaged: app.isPackaged, ocr: { status: 'not run' } };
-          const root = app.isPackaged ? process.resourcesPath : path.join(__dirname, 'ocr-dist');
-          const exe = path.join(
-            root,
-            'ocr-probe',
-            process.platform === 'win32' ? 'ocr-probe.exe' : 'ocr-probe',
-          );
-          if (!fs.existsSync(exe)) throw Error('缺少本地 OCR 辅助程序，依赖探针未通过');
-          const fixture = app.isPackaged
-            ? path.join(process.resourcesPath, 'ocr-sample.png')
-            : path.join(__dirname, 'fixtures', 'ocr-sample.png');
-          const { stdout } = await promisify(execFile)(exe, [fixture], {
-            timeout: 60000,
-            maxBuffer: 1024 * 1024,
-            windowsHide: true,
-            shell: false,
-          });
-          report.ocr = JSON.parse(stdout);
-          if (report.ocr?.status !== 'passed') throw Error('OCR 依赖探针未通过');
+          const report = { sqlite, packaged: app.isPackaged };
           console.log(JSON.stringify(report, null, 2));
           app.exit(0);
         } catch (error) {
@@ -294,16 +268,14 @@ if (primary)
         }
         return;
       }
-      service = createOcrService(app.isPackaged ? process.resourcesPath : undefined);
       startupEvent('ledger-opening');
       ledger = managed
-        ? require('./managed-ledger.cjs').createManagedLedger(dataDir, service, {
+        ? require('./managed-ledger.cjs').createManagedLedger(dataDir, {
             backupDestination,
             allowLegacyRecovery: portable?.allowLegacyRecovery === true,
           })
         : require('./trial-ledger.cjs').createLedger(
             dataDir || path.join(app.getPath('userData'), 'stage0-trial'),
-            service,
           );
       startupEvent('ledger-open');
       const win = new BrowserWindow({
@@ -327,7 +299,6 @@ if (primary)
       });
       const entry = path.join(__dirname, '..', 'dist', 'index.html'),
         entryURL = pathToFileURL(entry).href;
-      const requests = new Map();
       const trusted = (event) =>
         event.sender === win.webContents &&
         event.senderFrame === win.webContents.mainFrame &&
@@ -367,33 +338,8 @@ if (primary)
           pendingLedger.delete(pending);
         }
       });
-      ipcMain.handle('ocr:recognize', async (event, payload) => {
-        if (!trusted(event)) throw Error('拒绝非主窗口请求');
-        if (closing) throw Error('应用正在关闭，请稍后重新打开');
-        if (
-          !payload ||
-          typeof payload.id !== 'string' ||
-          !/^[a-f0-9-]{36}$/.test(payload.id) ||
-          !(payload.bytes instanceof ArrayBuffer) ||
-          payload.bytes.byteLength > MAX_BYTES ||
-          requests.has(payload.id)
-        )
-          throw Error('识别请求无效');
-        const controller = new AbortController();
-        requests.set(payload.id, controller);
-        try {
-          return await service.recognize(Buffer.from(payload.bytes), { signal: controller.signal });
-        } finally {
-          requests.delete(payload.id);
-        }
-      });
-      ipcMain.on('ocr:cancel', (event, id) => {
-        if (trusted(event) && typeof id === 'string') requests.get(id)?.abort();
-      });
       win.once('closed', () => {
         startupEvent('window-closed');
-        for (const request of requests.values()) request.abort();
-        service.stop();
       });
       win.on('close', (event) => {
         if (!closed) {

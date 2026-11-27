@@ -57,12 +57,6 @@ function harness(options = {}) {
   ]);
   const platform = options.platform || process.platform,
     resources = path.join(base, 'resources');
-  const worker = path.join(
-    options.packaged ? resources : path.join(path.dirname(mainFile), 'ocr-dist'),
-    'ocr-probe',
-    platform === 'win32' ? 'ocr-probe.exe' : 'ocr-probe',
-  );
-  if (options.probe && !options.workerMissing) files.set(worker, 'file');
   for (const missing of options.missing || []) files.delete(missing);
   const contents = new Map(options.contents || []);
   const fakeFs = {
@@ -129,19 +123,6 @@ function harness(options = {}) {
     quitEvents.push(attempt);
     app.emit('before-quit', attempt);
   };
-  const service = {
-    finished: options.serviceFinished || Promise.resolve(),
-    stop() {
-      calls.push({ kind: 'service.stop' });
-      options.stop?.();
-    },
-    recognize(bytes, settings) {
-      calls.push({ kind: 'recognize', bytes, settings });
-      return options.recognize
-        ? options.recognize(bytes, settings)
-        : Promise.resolve({ synthetic: true });
-    },
-  };
   const ledger = {
     command(payload) {
       calls.push({ kind: 'command', payload });
@@ -200,19 +181,6 @@ function harness(options = {}) {
     if (options.ledgerError) throw options.ledgerError;
     return ledger;
   }
-  const fakeExecFile = () => {
-    throw Error('Native process execution is forbidden in this test');
-  };
-  fakeExecFile[require('node:util').promisify.custom] = async (file, args, settings) => {
-    if (!options.probe) throw Error('Unexpected probe execution');
-    calls.push({ kind: 'execFile', file, args, settings });
-    return {
-      stdout: JSON.stringify(
-        Object.hasOwn(options, 'ocrResult') ? options.ocrResult : { status: 'passed' },
-      ),
-      stderr: '',
-    };
-  };
   function fakeRequire(name) {
     if (name === 'electron')
       return {
@@ -229,14 +197,6 @@ function harness(options = {}) {
       };
     if (name === './windows-runtime.cjs')
       return { configureWindowsPortable: () => options.portable || null };
-    if (name === './ocr-service.cjs')
-      return {
-        MAX_BYTES: 20 * 1024 * 1024,
-        createOcrService: (...args) => {
-          calls.push({ kind: 'createOcrService', args });
-          return service;
-        },
-      };
     if (name === './trial-ledger.cjs')
       return { createLedger: (...args) => factory('createLedger', args) };
     if (name === './managed-ledger.cjs')
@@ -249,7 +209,6 @@ function harness(options = {}) {
     if (name === 'node:fs') return fakeFs;
     if (name === 'node:child_process')
       return {
-        execFile: fakeExecFile,
         spawn: (file, args, settings) => {
           calls.push({ kind: 'spawn', file, args, settings });
           const child = new EventEmitter();
@@ -303,7 +262,6 @@ function harness(options = {}) {
   return {
     app,
     processEvents,
-    service,
     ledger,
     calls,
     errors,
@@ -331,13 +289,7 @@ function harness(options = {}) {
 
 // Every runtime path below is synthetic; filesystem and ledger modules are replaced before execution.
 function assertProbeIsolation(h) {
-  for (const kind of [
-    'createOcrService',
-    'createLedger',
-    'createManagedLedger',
-    'window',
-    'command',
-  ])
+  for (const kind of ['createLedger', 'createManagedLedger', 'window', 'command'])
     assert.equal(h.count(kind), 0, kind);
   assert.equal(h.handlers.size, 0);
   assert.equal(h.count('sqliteProbe'), 1);
@@ -347,32 +299,18 @@ function assertProbeIsolation(h) {
     h.calls.find((call) => call.kind === 'mkdtemp').file,
   );
 }
-test('probe rejects a missing OCR worker in development and packaged modes without opening a ledger', async () => {
-  for (const packaged of [false, true]) {
-    const h = harness({ probe: true, packaged, platform: 'win32', workerMissing: true });
+test('probe requires an explicit passed SQLite status', async () => {
+  for (const result of [{ status: 'failed' }, { status: 'not run' }, {}, null]) {
+    const h = harness({ probe: true, packaged: true, platform: 'win32', sqliteResult: result });
     await h.start();
     assert.deepEqual(h.exitCodes, [1]);
     assert.equal(h.logs.length, 0);
-    assert.match(h.errors[0], /缺少本地 OCR/);
-    assert.equal(h.count('execFile'), 0);
+    assert.match(h.errors[0], /依赖探针未通过/);
     assertProbeIsolation(h);
   }
 });
 
-test('probe requires explicit passed statuses from both SQLite and OCR', async () => {
-  for (const key of ['sqliteResult', 'ocrResult'])
-    for (const result of [{ status: 'failed' }, { status: 'not run' }, {}, null]) {
-      const h = harness({ probe: true, packaged: true, platform: 'win32', [key]: result });
-      await h.start();
-      assert.deepEqual(h.exitCodes, [1]);
-      assert.equal(h.logs.length, 0);
-      assert.match(h.errors[0], /依赖探针未通过/);
-      assert.equal(h.count('execFile'), key === 'sqliteResult' ? 0 : 1);
-      assertProbeIsolation(h);
-    }
-});
-
-test('probe succeeds only with both passed reports and the platform-specific worker, without UI startup', async () => {
+test('probe succeeds with a passed SQLite report, without UI startup', async () => {
   for (const platform of ['darwin', 'win32'])
     for (const packaged of [false, true]) {
       const h = harness({ probe: true, packaged, platform });
@@ -380,30 +318,12 @@ test('probe succeeds only with both passed reports and the platform-specific wor
       assert.deepEqual(h.exitCodes, [0]);
       assert.deepEqual(h.errors, []);
       assert.equal(h.logs.length, 1);
-      assert.deepEqual(JSON.parse(h.logs[0]), {
-        sqlite: { status: 'passed' },
-        packaged,
-        ocr: { status: 'passed' },
-      });
-      const execution = h.calls.find((call) => call.kind === 'execFile'),
-        root = packaged
-          ? path.join(base, 'resources')
-          : path.join(path.dirname(mainFile), 'ocr-dist');
-      assert.equal(
-        execution.file,
-        path.join(root, 'ocr-probe', platform === 'win32' ? 'ocr-probe.exe' : 'ocr-probe'),
-      );
-      assert.equal(
-        execution.args[0],
-        packaged
-          ? path.join(base, 'resources', 'ocr-sample.png')
-          : path.join(path.dirname(mainFile), 'fixtures', 'ocr-sample.png'),
-      );
+      assert.deepEqual(JSON.parse(h.logs[0]), { sqlite: { status: 'passed' }, packaged });
       assertProbeIsolation(h);
     }
 });
 
-test('invalid native configuration fails before readiness, OCR or database creation', () => {
+test('invalid native configuration fails before readiness or database creation', () => {
   const cases = [
     { env: { XX_FINANCE_MANAGED_TRIAL: '1' } },
     { env: { XX_FINANCE_MANAGED_TRIAL: '1', XX_FINANCE_USER_DATA_DIR: USER } },
@@ -423,13 +343,7 @@ test('invalid native configuration fails before readiness, OCR or database creat
     const h = harness(input);
     assert.ok(h.startupError);
     assert.deepEqual(h.exitCodes, [1]);
-    for (const kind of [
-      'whenReady',
-      'createOcrService',
-      'createLedger',
-      'createManagedLedger',
-      'window',
-    ])
+    for (const kind of ['whenReady', 'createLedger', 'createManagedLedger', 'window'])
       assert.equal(h.count(kind), 0, kind);
   }
 });
@@ -466,37 +380,34 @@ test('ordinary startup keeps the prior default or explicit ledger route without 
   }
 });
 
-test('managed startup passes only the configured root, service and backup destination', async () => {
+test('managed startup passes only the configured root and backup destination', async () => {
   const h = harness({ env: managedEnv });
   await h.start();
   assert.equal(h.count('createLedger'), 0);
   assert.equal(h.count('createManagedLedger'), 1);
   const { args } = h.calls.find((call) => call.kind === 'createManagedLedger');
   assert.equal(args[0], DATA);
-  assert.equal(args[1], h.service);
-  assert.equal(args[2].backupDestination, BACKUP);
+  assert.equal(args.length, 2);
+  assert.equal(args[1].backupDestination, BACKUP);
   const config = h.calls.find((call) => call.kind === 'window').config;
   assert.equal(config.webPreferences.sandbox, true);
   assert.equal(config.webPreferences.contextIsolation, true);
   assert.equal(config.webPreferences.nodeIntegration, false);
 });
 
-test('ledger and OCR IPC require the exact main sender, frame and entry file URL', async () => {
+test('ledger IPC requires the exact main sender, frame and entry file URL', async () => {
   const h = harness({ env: managedEnv });
   await h.start();
+  assert.deepEqual([...h.handlers.keys()], ['ledger:command']);
   const ledger = h.handlers.get('ledger:command'),
-    ocr = h.handlers.get('ocr:recognize'),
     valid = h.trusted(),
     frame = valid.senderFrame,
     url = frame.url;
-  const payload = { id: randomUUID(), bytes: new Uint8Array([137, 80, 78, 71]).buffer };
   for (const bad of [
     { sender: {}, senderFrame: frame },
     { sender: valid.sender, senderFrame: { url } },
-  ]) {
+  ])
     await assert.rejects(ledger(bad, { kind: 'read' }), /拒绝非主窗口/);
-    await assert.rejects(ocr(bad, payload), /拒绝非主窗口/);
-  }
   for (const badUrl of [
     'https://example.invalid/',
     url + '?query=1',
@@ -505,15 +416,11 @@ test('ledger and OCR IPC require the exact main sender, frame and entry file URL
   ]) {
     frame.url = badUrl;
     await assert.rejects(ledger(valid, { kind: 'read' }), /拒绝非主窗口/);
-    await assert.rejects(ocr(valid, payload), /拒绝非主窗口/);
   }
   assert.equal(h.count('command'), 0);
-  assert.equal(h.count('recognize'), 0);
   frame.url = url;
   assert.deepEqual(await ledger(valid, { kind: 'read' }), { synthetic: true });
-  assert.deepEqual(await ocr(valid, payload), { synthetic: true });
   assert.equal(h.count('command'), 1);
-  assert.equal(h.count('recognize'), 1);
 });
 
 test('only the same-entry main-frame reload is allowed, while closing, foreign navigation and permissions stay blocked', async () => {
@@ -556,13 +463,11 @@ test('only the same-entry main-frame reload is allowed, while closing, foreign n
   await flush();
 });
 
-test('repeated quit cannot bypass pending writes, OCR cleanup or asynchronous ledger close', async () => {
-  const finished = deferred(),
-    write = deferred(),
+test('repeated quit cannot bypass pending writes or asynchronous ledger close', async () => {
+  const write = deferred(),
     close = deferred();
   const h = harness({
     env: managedEnv,
-    serviceFinished: finished.promise,
     command: () => write.promise,
     close: () => close.promise,
   });
@@ -572,15 +477,8 @@ test('repeated quit cannot bypass pending writes, OCR cleanup or asynchronous le
   assert.equal(h.count('command'), 1);
   assert.equal(h.beforeQuit().prevented, 1);
   assert.equal(h.beforeQuit().prevented, 1);
-  assert.equal(h.count('service.stop'), 1);
   assert.equal(h.count('ledger.close'), 0);
   await assert.rejects(h.handlers.get('ledger:command')(h.trusted(), { kind: 'read' }), /正在关闭/);
-  await assert.rejects(
-    h.handlers.get('ocr:recognize')(h.trusted(), { id: randomUUID(), bytes: new ArrayBuffer(1) }),
-    /正在关闭/,
-  );
-  assert.equal(h.count('recognize'), 0);
-  finished.resolve();
   await flush();
   assert.equal(h.count('ledger.close'), 0);
   write.resolve({ saved: true });
@@ -629,12 +527,7 @@ test('failed close keeps the closing gate and never reports a successful quit', 
   assert.equal(h.beforeQuit().prevented, 1);
   await flush();
   assert.equal(h.count('ledger.close'), 1);
-  assert.equal(h.count('service.stop'), 1);
   await assert.rejects(h.handlers.get('ledger:command')(h.trusted(), { kind: 'read' }), /正在关闭/);
-  await assert.rejects(
-    h.handlers.get('ocr:recognize')(h.trusted(), { id: randomUUID(), bytes: new ArrayBuffer(1) }),
-    /正在关闭/,
-  );
 });
 
 test('startup failure waits for available ledger cleanup before exiting with an error', async () => {
@@ -645,7 +538,6 @@ test('startup failure waits for available ledger cleanup before exiting with an 
       close: () => close.promise,
     });
   await h.start();
-  assert.equal(h.count('service.stop'), 1);
   assert.equal(h.count('ledger.close'), 1);
   assert.deepEqual(h.exitCodes, []);
   assert.equal(h.count('quit'), 0);
@@ -655,22 +547,14 @@ test('startup failure waits for available ledger cleanup before exiting with an 
   assert.equal(h.count('quit'), 0);
 });
 
-test('ledger creation failure stops OCR and waits for its cleanup without opening a window', async () => {
-  const finished = deferred(),
-    h = harness({
-      env: managedEnv,
-      ledgerError: Error('synthetic database startup failure'),
-      serviceFinished: finished.promise,
-    });
+test('ledger creation failure exits with an error without opening a window', async () => {
+  const h = harness({ env: managedEnv, ledgerError: Error('synthetic database startup failure') });
   await h.start();
-  assert.equal(h.count('service.stop'), 1);
   assert.equal(h.count('window'), 0);
   assert.equal(h.count('ledger.close'), 0);
-  assert.deepEqual(h.exitCodes, []);
-  finished.resolve();
-  await flush();
   assert.deepEqual(h.exitCodes, [1]);
   assert.equal(h.count('quit'), 0);
+  assert.match(h.dialogs[0].message, /synthetic database startup failure/);
 });
 
 test('startup cleanup failure exits with error and records that the ledger and lock remain', async () => {
@@ -908,7 +792,7 @@ test('internal portable executable hands off to the supervised launcher without 
   await supervised.start();
   assert.equal(supervised.count('spawn'), 0);
   assert.equal(
-    supervised.calls.find((c) => c.kind === 'createManagedLedger').args[2].allowLegacyRecovery,
+    supervised.calls.find((c) => c.kind === 'createManagedLedger').args[1].allowLegacyRecovery,
     true,
   );
 });

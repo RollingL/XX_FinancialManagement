@@ -1,9 +1,7 @@
 name: Windows x64 offline trial candidate
 
-# The dedicated branch avoids changing main just to register workflow_dispatch.
+# Manual only: each run uses GitHub Actions minutes, so the project owner starts it.
 on:
-  push:
-    branches: [codex/windows10-offline-acceptance]
   workflow_dispatch:
 
 permissions:
@@ -29,11 +27,6 @@ jobs:
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 26.10.0
-          architecture: x64
-      - name: Set up build-only Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.12'
           architecture: x64
       - name: Build and check the portable candidate
         run: ./spike/build-windows-trial.ps1

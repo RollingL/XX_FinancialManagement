@@ -7,12 +7,12 @@ const { randomUUID } = require('node:crypto'),
   Database = require('better-sqlite3');
 const { createManagedLedger } = require('../spike/managed-ledger.cjs');
 const { verifyBackup, restoreBackup, inspectDatabase } = require('../spike/ledger-backup.cjs');
-const service = { recognize: async () => ({}) },
-  image = (n) => ({ base64: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, n]).toString('base64') });
+const { syntheticPng } = require('./synthetic-image.cjs');
+const image = (n) => ({ base64: syntheticPng({ seed: n }).toString('base64') });
 function fixture(t) {
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-crud-backup-'))),
     root = path.join(parent, 'ledger');
-  let ledger = createManagedLedger(root, service, { backupDestination: parent });
+  let ledger = createManagedLedger(root, { backupDestination: parent });
   t.after(async () => {
     await ledger.close();
     fs.rmSync(parent, { recursive: true, force: true });
@@ -29,7 +29,7 @@ function fixture(t) {
     },
     async reopen() {
       await ledger.close();
-      ledger = createManagedLedger(root, service, { backupDestination: parent });
+      ledger = createManagedLedger(root, { backupDestination: parent });
     },
   };
 }
@@ -162,7 +162,7 @@ test('editing an amount-only legacy advance records the correction time and rema
       backupDir: saved.directory,
       targetDir: path.join(f.parent, 'legacy-restored'),
     }),
-    opened = createManagedLedger(restored.directory, service, { backupDestination: f.parent });
+    opened = createManagedLedger(restored.directory, { backupDestination: f.parent });
   try {
     assert.deepEqual(
       { ...(await opened.command({ kind: 'read' })), generation: after.generation },

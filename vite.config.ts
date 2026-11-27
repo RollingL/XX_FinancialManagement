@@ -1,8 +1,6 @@
 import { defineConfig } from 'vite';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { createOcrService } = require('./spike/ocr-service.cjs');
-const { ocrMiddleware } = require('./spike/ocr-http.cjs');
 const { createLedger, ledgerMiddleware } = require('./spike/trial-ledger.cjs');
 let disposeLedger: (() => Promise<void>) | undefined;
 export default defineConfig({
@@ -30,9 +28,8 @@ export default defineConfig({
   },
   plugins: [
     {
-      name: 'stage0-local-ocr',
+      name: 'local-ledger',
       configureServer(server) {
-        const service = createOcrService();
         const managed = process.env.XX_FINANCE_MANAGED_TRIAL === '1';
         const dataDir = process.env.XX_FINANCE_DATA_DIR;
         if (managed && (!dataDir || !require('node:path').isAbsolute(dataDir)))
@@ -41,17 +38,14 @@ export default defineConfig({
         if (backupDestination && !require('node:path').isAbsolute(backupDestination))
           throw Error('备份目的地须由本机启动配置明确指定为绝对目录');
         const ledger = managed
-          ? require('./spike/managed-ledger.cjs').createManagedLedger(dataDir, service, {
+          ? require('./spike/managed-ledger.cjs').createManagedLedger(dataDir, {
               backupDestination,
             })
-          : createLedger(dataDir || require('node:path').resolve('.local-data'), service);
+          : createLedger(dataDir || require('node:path').resolve('.local-data'));
         server.middlewares.use(ledgerMiddleware(ledger, 'http://127.0.0.1:5173'));
-        server.middlewares.use(ocrMiddleware(service, 'http://127.0.0.1:5173'));
         let disposal: Promise<void> | undefined;
         disposeLedger = () =>
           (disposal ??= (async () => {
-            service.stop();
-            await service.finished;
             await ledger.close();
           })());
       },

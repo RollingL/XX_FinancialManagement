@@ -4,7 +4,7 @@ const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
 const Database = require('better-sqlite3');
-const { imageSuffix, MAX_BYTES } = require('./ocr-service.cjs');
+const { checkImage, MAX_IMAGE_BYTES } = require('./image-check.cjs');
 const fail = (message) => {
   throw Object.assign(Error(message), { status: 422 });
 };
@@ -40,7 +40,7 @@ function batchEvents(state) {
   if (!Array.isArray(events)) fail('现有批次操作历史无效，请保留账本');
   return events;
 }
-function createLedger(root, service, managedToken) {
+function createLedger(root, managedToken) {
   if (fs.lstatSync(path.join(root, 'managed-ledger.json'), { throwIfNoEntry: false })) {
     const lock = path.join(root, '.writer-lock'),
       ownerFile = path.join(lock, 'owner.json');
@@ -156,13 +156,12 @@ function createLedger(root, service, managedToken) {
       if (['expense', 'advance'].includes(input.kind) && input.image) {
         if (
           typeof input.image.base64 !== 'string' ||
-          input.image.base64.length > Math.ceil(MAX_BYTES / 3) * 4 ||
+          input.image.base64.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4 ||
           !/^[A-Za-z0-9+/]+={0,2}$/.test(input.image.base64)
         )
           fail('附件无效');
         const bytes = Buffer.from(input.image.base64, 'base64'),
-          suffix = imageSuffix(bytes);
-        await service.recognize(bytes, { validateOnly: true });
+          { suffix, mime } = checkImage(bytes);
         const id = randomUUID(),
           file = id + suffix;
         const fd = fs.openSync(path.join(attachments, file), 'wx', 0o600);
@@ -177,7 +176,7 @@ function createLedger(root, service, managedToken) {
           id,
           file,
           size: bytes.length,
-          mime: suffix === '.png' ? 'image/png' : 'image/jpeg',
+          mime,
           sha256: createHash('sha256').update(bytes).digest('hex'),
         };
       }
@@ -540,7 +539,7 @@ function ledgerMiddleware(ledger, origin) {
       let size = 0;
       for await (const chunk of req) {
         size += chunk.length;
-        if (size > MAX_BYTES * 1.4 + 8192) fail('请求过大');
+        if (size > MAX_IMAGE_BYTES * 1.4 + 8192) fail('请求过大');
         chunks.push(chunk);
       }
       const result = await ledger.command(JSON.parse(Buffer.concat(chunks).toString('utf8')));

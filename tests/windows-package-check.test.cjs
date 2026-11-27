@@ -16,24 +16,15 @@ function fixture(t) {
   pe.writeUInt16LE(112, 84);
   pe.writeUInt16LE(0x20b, 88);
   pe.writeUInt16LE(2, 156);
-  const worker = path.join(root, 'spike/ocr-dist/ocr-probe');
   const binaries = [
-    'ocr-probe.exe',
-    '_internal/python312.dll',
-    '_internal/onnxruntime/capi/onnxruntime_pybind11_state.pyd',
-  ].map((file) => path.join(worker, file));
-  binaries.push(path.join(root, 'node_modules/better-sqlite3/prebuilds/win32-x64.node'));
-  binaries.push(path.join(root, 'out/windows-launcher/Qianlai.exe'));
-  const models = [
-    'PP-OCRv6_det_small.onnx',
-    'ch_ppocr_mobile_v2.0_cls_mobile.onnx',
-    'PP-OCRv6_rec_small.onnx',
-  ].map((file) => path.join(worker, '_internal/models', file));
-  for (const file of [...binaries, ...models]) {
+    path.join(root, 'node_modules/better-sqlite3/prebuilds/win32-x64.node'),
+    path.join(root, 'out/windows-launcher/Qianlai.exe'),
+  ];
+  for (const file of binaries) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, binaries.includes(file) ? pe : 'synthetic model presence fixture');
+    fs.writeFileSync(file, pe);
   }
-  return { root, binaries, models, pe };
+  return { root, binaries, pe };
 }
 test('Windows package input guard rejects foreign host or architecture before touching resources', () => {
   for (const [arch, host] of [
@@ -48,7 +39,7 @@ test('complete synthetic x64 input set passes presence checks without claiming r
   const { root } = fixture(t);
   assert.doesNotThrow(() => checkWindowsPackage(root, 'x64', win));
 });
-test('each worker/runtime/sqlite binary must exist and contain an x64 PE header', (t) => {
+test('the SQLite binary and launcher must exist and contain an x64 PE header', (t) => {
   const { root, binaries, pe } = fixture(t);
   for (const file of binaries) {
     for (const bad of [Buffer.from('Mac Mach-O'), Buffer.from(pe)]) {
@@ -63,19 +54,6 @@ test('each worker/runtime/sqlite binary must exist and contain an x64 PE header'
     fs.unlinkSync(file);
     assert.throws(() => checkWindowsPackage(root, 'x64', win), /ENOENT/);
     fs.writeFileSync(file, pe);
-  }
-});
-test('each bundled model must be a nonempty regular file', (t) => {
-  const { root, models } = fixture(t);
-  for (const file of models) {
-    fs.writeFileSync(file, '');
-    assert.throws(() => checkWindowsPackage(root, 'x64', win), /empty/);
-    fs.unlinkSync(file);
-    assert.throws(() => checkWindowsPackage(root, 'x64', win), /ENOENT/);
-    fs.mkdirSync(file);
-    assert.throws(() => checkWindowsPackage(root, 'x64', win), /empty/);
-    fs.rmdirSync(file);
-    fs.writeFileSync(file, 'synthetic model');
   }
 });
 test('Forge guard is attached before Windows packaging and leaves non-Windows packaging unchanged', async (t) => {

@@ -8,13 +8,12 @@ const test = require('node:test'),
 const { createManagedLedger } = require('../spike/managed-ledger.cjs');
 const { inspectDatabase, verifyBackup, restoreBackup } = require('../spike/ledger-backup.cjs');
 const { seedLegacyInvoices } = require('./legacy-invoice-fixture.cjs');
-const service = { recognize: async () => ({}) };
 async function fixture(t) {
   const parent = fs.realpathSync(
       fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-legacy-reminder-backup-')),
     ),
     root = path.join(parent, 'ledger'),
-    ledger = createManagedLedger(root, service, { backupDestination: parent });
+    ledger = createManagedLedger(root, { backupDestination: parent });
   t.after(async () => {
     await ledger.close();
     fs.rmSync(parent, { recursive: true, force: true });
@@ -64,7 +63,7 @@ for (const flag of [undefined, true, false])
         backupDir: saved.directory,
         targetDir: path.join(f.parent, 'restored'),
       }),
-      reopened = createManagedLedger(restored.directory, service, { backupDestination: f.parent });
+      reopened = createManagedLedger(restored.directory, { backupDestination: f.parent });
     try {
       const after = await reopened.command({ kind: 'read' });
       assert.deepEqual({ ...after, generation: state.generation }, state);

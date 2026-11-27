@@ -12,7 +12,7 @@ function seedLegacyInvoices(root, expenseId) {
         state.expenses.find((e) => e.id === expenseId).invoice = 100; // Historical marker, never an amount constraint or new reminder default.
         const attachmentId = randomUUID(),
           file = attachmentId + '.png',
-          bytes = fs.readFileSync(path.join(__dirname, '../spike/fixtures/ocr-sample.png'));
+          bytes = fs.readFileSync(path.join(__dirname, 'fixtures/synthetic-payment.png'));
         fs.writeFileSync(path.join(root, 'attachments', file), bytes, { flag: 'wx' });
         db.prepare('INSERT INTO attachments VALUES(?,?,?,?,?)').run(
           attachmentId,

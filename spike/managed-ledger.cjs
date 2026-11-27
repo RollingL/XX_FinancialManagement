@@ -102,7 +102,6 @@ function acquireManagedLock(root, { create = false, allowLegacyRecovery = false 
 }
 function createManagedLedger(
   root,
-  service,
   { createBackup, backupDestination, allowLegacyRecovery = false } = {},
 ) {
   if (backupDestination !== undefined) {
@@ -181,7 +180,7 @@ function createManagedLedger(
   function open() {
     opening = true;
     try {
-      const value = createLedger(lock.root, service, lock.token);
+      const value = createLedger(lock.root, lock.token);
       opening = false;
       return value;
     } catch (e) {
@@ -331,8 +330,6 @@ function createManagedLedger(
       if (input.generation !== publicGeneration(rawState.generation))
         fail('账本代际已变化，请刷新后重试');
     }
-    service?.stop?.();
-    await service?.finished;
     if (ledger) {
       await ledger.close();
       ledger = null;
@@ -449,7 +446,7 @@ function createManagedLedger(
       }
       require('./ledger-backup.cjs').inspectDatabase(path.join(target, 'trial.sqlite'));
       candidateOpening = true;
-      nextLedger = createLedger(target, service, newLock.token);
+      nextLedger = createLedger(target, newLock.token);
       candidateOpening = false;
       const receipt = {
         requestId: input.requestId,

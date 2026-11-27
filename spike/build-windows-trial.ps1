@@ -29,17 +29,16 @@ if ((Get-Item -LiteralPath $workspace).Attributes -band [IO.FileAttributes]::Rep
     throw 'A redirected workspace root is not supported.'
 }
 
-# npm ci, Vite, PyInstaller and Forge may replace their outputs. Only fresh roots are allowed.
-$freshPaths = @('node_modules', '.venv-ocr', 'dist', 'out', 'spike/models', 'spike/ocr-build', 'spike/ocr-dist', '.local-data')
+# npm ci, Vite and Forge may replace their outputs. Only fresh roots are allowed.
+$freshPaths = @('node_modules', 'dist', 'out', '.local-data')
 foreach ($relative in $freshPaths) {
     if (Test-Path -LiteralPath (Join-Path $workspace $relative)) {
         throw "Refusing an existing build/data path: $relative. Use a fresh CI checkout; nothing was deleted."
     }
 }
-foreach ($relative in @('package-lock.json', 'spike/requirements.txt', 'spike/prepare_models.py',
-    'spike/ocr-probe.spec', 'spike/prepare-windows-portable.cjs', 'spike/windows-package-check.cjs',
+foreach ($relative in @('package-lock.json', 'spike/prepare-windows-portable.cjs', 'spike/windows-package-check.cjs',
     'spike/windows-launcher.cpp', 'tests/fixtures/windows-launcher-child.cpp', 'tests/windows-gui-smoke.cjs',
-    'docs/WINDOWS_OFFLINE_TRIAL.md')) {
+    'tests/fixtures/synthetic-payment.png', 'docs/WINDOWS_OFFLINE_TRIAL.md')) {
     if (!(Test-Path -LiteralPath (Join-Path $workspace $relative) -PathType Leaf)) {
         throw "Missing required build input: $relative"
     }
@@ -72,9 +71,7 @@ function Assert-RegularFile {
 try {
     $node = (Get-Command node.exe -CommandType Application | Select-Object -First 1).Source
     $npm = (Get-Command npm.cmd -CommandType Application | Select-Object -First 1).Source
-    $python = (Get-Command python.exe -CommandType Application | Select-Object -First 1).Source
     Invoke-Native -File $node -Arguments @('-e', 'if(process.version!=="v26.10.0"||process.platform!=="win32"||process.arch!=="x64")throw Error("Expected Node 26.10.0 Windows x64");console.log(JSON.stringify({node:process.version,platform:process.platform,arch:process.arch}))')
-    Invoke-Native -File $python -Arguments @('-B', '-c', 'import sys,struct,platform; assert sys.version_info[:2]==(3,12) and sys.platform=="win32" and struct.calcsize("P")==8; print(sys.version); print(platform.platform())')
     Invoke-Native -File $npm -Arguments @('--version')
     Invoke-Native -File $npm -Arguments @('ci', '--ignore-scripts', '--no-audit', '--no-fund')
 
@@ -86,83 +83,13 @@ try {
     Invoke-Native -File $node -Arguments @('node_modules/electron/install.js')
     Invoke-Native -File $node -Arguments @('-e', 'const fs=require("node:fs"),p=require("node:path"),v=require("./package.json").devDependencies.electron;const exe=require("electron");if(p.basename(exe)!=="electron.exe"||fs.readFileSync(p.join(p.dirname(exe),"version"),"utf8").trim().replace(/^v/,"")!==v)throw Error("Electron download/version mismatch");console.log("Electron binary checked: "+v)')
 
-    Invoke-Native -File $python -Arguments @('-B', '-m', 'venv', '.venv-ocr')
-    $venvPython = Join-Path $workspace '.venv-ocr/Scripts/python.exe'
-    $env:PYTHONDONTWRITEBYTECODE = '1'
-    $env:PYTHONUTF8 = '1'
-    $env:PIP_DISABLE_PIP_VERSION_CHECK = '1'
-    Invoke-Native -File $venvPython -Arguments @('-B', '-m', 'pip', 'install', '--require-virtualenv', '--only-binary=:all:', '-r', 'spike/requirements.txt')
-    Invoke-Native -File $venvPython -Arguments @('-B', '-m', 'pip', 'check')
-    Invoke-Native -File $venvPython -Arguments @('-B', '-m', 'pip', 'freeze', '--all') |
-        Set-Content -LiteralPath (Join-Path $logRoot 'requirements-windows-x64.resolved.txt') -Encoding utf8
-    Invoke-Native -File $venvPython -Arguments @('-B', 'spike/prepare_models.py')
-    Push-Location -LiteralPath (Join-Path $workspace 'spike')
-    try {
-        Invoke-Native -File $venvPython -Arguments @('-B', '-m', 'PyInstaller', 'ocr-probe.spec', '--distpath', 'ocr-dist', '--workpath', 'ocr-build')
-    } finally { Pop-Location }
-
-    $internal = Join-Path $workspace 'spike/ocr-dist/ocr-probe/_internal'
-    if (!(Test-Path -LiteralPath $internal -PathType Container)) { throw 'PyInstaller worker resources are missing.' }
-    foreach ($relative in @('python312.dll', 'onnxruntime/capi/onnxruntime_pybind11_state.pyd')) {
-        Assert-RegularFile (Join-Path $internal $relative)
-    }
-    foreach ($package in @('cv2', 'numpy')) {
-        $extensions = @(Get-ChildItem -LiteralPath (Join-Path $internal $package) -Filter '*.pyd' -File -Recurse)
-        if (!$extensions.Count) { throw "No bundled native extension found for $package." }
-        foreach ($extension in $extensions) { Assert-RegularFile $extension.FullName }
-    }
-
-    $requiredCrt = @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
-    $crtRecords = @()
-    $licenseUrl = 'https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution#visual-c-runtime-files'
-    # Fill any missing official CRT components, including helpers beyond the three core DLLs.
-    # A runner with globally installed VC runtime must not hide omissions in the portable output.
-    # Never copy from System32, download DLLs, run vc_redist, or change the runner's installation.
+    # The launcher is compiled with the runner's Visual Studio 2022 C++ toolchain.
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
     Assert-RegularFile $vswhere
-    $vsRoots = @(Invoke-Native -File $vswhere -Arguments @('-latest', '-products', '*', '-version', '[17.0,18.0)', '-requires', 'Microsoft.VisualStudio.Component.VC.Redist.14.Latest', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-property', 'installationPath'))
+    $vsRoots = @(Invoke-Native -File $vswhere -Arguments @('-latest', '-products', '*', '-version', '[17.0,18.0)', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-property', 'installationPath'))
     if ($vsRoots.Count -ne 1 -or ![IO.Path]::IsPathFullyQualified($vsRoots[0])) {
-        throw 'Cannot resolve one installed Visual Studio 2022 official redistributable source; CRT gate failed.'
+        throw 'Cannot resolve one installed Visual Studio 2022 C++ toolchain.'
     }
-    $redistRoot = Join-Path $vsRoots[0] 'VC/Redist/MSVC'
-    $versions = @(Get-ChildItem -LiteralPath $redistRoot -Directory |
-        Where-Object { $_.Name -match '^\d+\.\d+\.\d+(\.\d+)?$' } |
-        Sort-Object -Property @{Expression={ [version]$_.Name };Descending=$true})
-    $crtSource = $null
-    foreach ($version in $versions) {
-        $candidate = Join-Path $version.FullName 'x64/Microsoft.VC143.CRT'
-        if (Test-Path -LiteralPath $candidate -PathType Container) { $crtSource = $candidate; break }
-    }
-    if (!$crtSource) { throw 'No official VS2022 x64 Microsoft.VC143.CRT directory; CRT gate failed.' }
-    foreach ($name in $requiredCrt) { Assert-RegularFile (Join-Path $crtSource $name) }
-    foreach ($source in Get-ChildItem -LiteralPath $crtSource -Filter '*.dll' -File) {
-        Assert-RegularFile $source.FullName
-        $target = Join-Path $internal $source.Name
-        if (Test-Path -LiteralPath $target) { continue }
-        $signature = Get-AuthenticodeSignature -LiteralPath $source.FullName
-        if ($signature.Status -ne 'Valid' -or !$signature.SignerCertificate -or
-            $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') {
-            throw "The official CRT source signature could not be verified: $($source.Name)"
-        }
-        [IO.File]::Copy($source.FullName, $target, $false)
-        $digest = (Get-FileHash -LiteralPath $source.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() -ne $digest) {
-            throw "CRT copy hash mismatch: $($source.Name)"
-        }
-        $crtRecords += [ordered]@{ name=$source.Name; source=$source.FullName; sha256=$digest;
-            fileVersion=$source.VersionInfo.FileVersion; signer=$signature.SignerCertificate.Subject; licenseReference=$licenseUrl }
-    }
-    foreach ($name in $requiredCrt) { Assert-RegularFile (Join-Path $internal $name) }
-    $crtInventory = @($requiredCrt | ForEach-Object {
-        $file = Get-Item -LiteralPath (Join-Path $internal $_)
-        [ordered]@{ name=$_; sha256=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant(); fileVersion=$file.VersionInfo.FileVersion }
-    })
-    $crtReport = [ordered]@{ note='Unmodified application-local VC runtime; existing files were collected by PyInstaller. Missing files may only be copied from signed VS2022 x64 redist originals. Distribution remains subject to the linked Microsoft license terms.';
-        licenseReference=$licenseUrl; copiedFromVisualStudio=$crtRecords; requiredFiles=$crtInventory }
-    $reportFile = Join-Path $internal 'qianlai-msvc-runtime-provenance.json'
-    if (Test-Path -LiteralPath $reportFile) { throw 'CRT provenance file already exists; refusing overwrite.' }
-    $crtReport | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $reportFile -Encoding utf8
-    [IO.File]::Copy($reportFile, (Join-Path $logRoot 'msvc-runtime-provenance.json'), $false)
 
     # Compile the console-free supervisor with the already-installed official toolchain.
     # /MT embeds the CRT; the offline computer receives no new runtime dependency.
@@ -196,13 +123,11 @@ try {
     Remove-Item Env:QIANLAI_TEST_LAUNCHER, Env:QIANLAI_TEST_LAUNCHER_CHILD
 
     Invoke-Native -File $node -Arguments @('--test', 'tests/windows-package-check.test.cjs', 'tests/electron-main.test.cjs',
-        'tests/windows-portable.test.cjs', 'tests/ocr-service.test.cjs', 'tests/expense-export.test.ts', 'tests/expense-download.test.ts',
+        'tests/windows-portable.test.cjs', 'tests/image-check.test.cjs', 'tests/expense-export.test.ts', 'tests/expense-download.test.ts',
         'tests/windows-runtime.test.cjs', 'tests/ledger-lock.test.cjs', 'tests/managed-restore.test.cjs',
         'tests/record-backup.test.cjs', 'tests/record-crud.test.cjs', 'tests/invoice-reminder.test.cjs', 'tests/ledger-backup.test.cjs')
-    Invoke-Native -File $venvPython -Arguments @('-B', '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_ocr_stdio.py', '-v')
     Invoke-Native -File $node -Arguments @('-e', 'require("./spike/windows-package-check.cjs").checkWindowsPackage(process.cwd(),"x64");console.log("Windows package inputs checked; target acceptance is still pending")')
     Invoke-Native -File $npm -Arguments @('run', 'package', '--', '--platform=win32', '--arch=x64')
-    [IO.File]::Copy((Join-Path $logRoot 'requirements-windows-x64.resolved.txt'), (Join-Path $workspace 'out/windows-python-freeze.txt'), $false)
     Invoke-Native -File $node -Arguments @('spike/prepare-windows-portable.cjs')
 
     $candidateName = "Qianlai-Windows10-x64-$($env:GITHUB_SHA.Substring(0, 12))"

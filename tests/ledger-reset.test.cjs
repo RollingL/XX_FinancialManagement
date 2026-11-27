@@ -31,7 +31,7 @@ async function fixture(t) {
   fs.writeFileSync(external, png);
   fs.writeFileSync(path.join(backup, 'database.sqlite'), 'synthetic untouched backup');
   fs.writeFileSync(path.join(other, 'trial.sqlite'), 'synthetic untouched other ledger');
-  let ledger = createLedger(root, { recognize: async () => ({ validated: true }) });
+  let ledger = createLedger(root);
   try {
     await ledger.command({
       kind: 'advance',
@@ -297,7 +297,7 @@ test('completed reset retries preserve new records and attachments, and stale re
   const f = await fixture(t),
     empty = resetLedger(f.args);
   assert.deepEqual(resetLedger(f.args), empty);
-  const ledger = createManagedLedger(f.root, { recognize: async () => ({ validated: true }) });
+  const ledger = createManagedLedger(f.root);
   try {
     const current = await ledger.command({ kind: 'read' });
     await ledger.command({

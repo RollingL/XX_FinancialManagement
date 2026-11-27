@@ -7,11 +7,10 @@ const test = require('node:test'),
   Database = require('better-sqlite3');
 const { createManagedLedger } = require('../spike/managed-ledger.cjs');
 const { seedLegacyInvoices } = require('./legacy-invoice-fixture.cjs');
-const service = { recognize: async () => ({ validated: true }) };
 function fixture(t) {
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-reminder-'))),
     root = path.join(parent, 'ledger');
-  let ledger = createManagedLedger(root, service, { backupDestination: parent });
+  let ledger = createManagedLedger(root, { backupDestination: parent });
   t.after(async () => {
     await ledger.close();
     fs.rmSync(parent, { recursive: true, force: true });
@@ -28,7 +27,7 @@ function fixture(t) {
     },
     async reopen() {
       await ledger.close();
-      ledger = createManagedLedger(root, service, { backupDestination: parent });
+      ledger = createManagedLedger(root, { backupDestination: parent });
     },
     db(fn) {
       const db = new Database(path.join(root, 'trial.sqlite'));

@@ -6,10 +6,10 @@ const test = require('node:test'),
   { randomUUID } = require('node:crypto'),
   Database = require('better-sqlite3');
 const { createLedger } = require('../spike/trial-ledger.cjs');
-const png = fs.readFileSync(path.join(__dirname, '../spike/fixtures/ocr-sample.png'));
+const png = fs.readFileSync(path.join(__dirname, 'fixtures/synthetic-payment.png'));
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-crud-'));
-  let ledger = createLedger(root, { recognize: async () => ({ validated: true }) });
+  let ledger = createLedger(root);
   t.after(() => {
     ledger.close();
     fs.rmSync(root, { recursive: true, force: true });
@@ -21,7 +21,7 @@ function fixture(t) {
     },
     reopen() {
       ledger.close();
-      ledger = createLedger(root, { recognize: async () => ({ validated: true }) });
+      ledger = createLedger(root);
     },
     db(fn) {
       const db = new Database(path.join(root, 'trial.sqlite'));

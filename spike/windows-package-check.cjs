@@ -37,21 +37,9 @@ function checkWindowsPackage(
   host = { platform: process.platform, arch: process.arch },
 ) {
   if (arch !== 'x64' || host.platform !== 'win32' || host.arch !== 'x64')
-    throw Error(
-      'Build this Windows acceptance package on Windows x64 with x64 Node and Python; Mac OCR is not compatible.',
-    );
-  const worker = path.join(root, 'spike', 'ocr-dist', 'ocr-probe');
-  peX64(path.join(worker, 'ocr-probe.exe'));
-  peX64(path.join(worker, '_internal', 'python312.dll'));
-  peX64(path.join(worker, '_internal', 'onnxruntime', 'capi', 'onnxruntime_pybind11_state.pyd'));
+    throw Error('Build this Windows package on Windows x64 with x64 Node.');
   peX64(path.join(root, 'node_modules', 'better-sqlite3', 'prebuilds', 'win32-x64.node'));
   checkWindowsLauncher(path.join(root, 'out', 'windows-launcher', 'Qianlai.exe'));
-  for (const name of [
-    'PP-OCRv6_det_small.onnx',
-    'ch_ppocr_mobile_v2.0_cls_mobile.onnx',
-    'PP-OCRv6_rec_small.onnx',
-  ])
-    regularFile(path.join(worker, '_internal', 'models', name));
-  // This checks package inputs, not DLL loading, OCR accuracy or Windows acceptance.
+  // This checks package inputs, not DLL loading or Windows 10 acceptance.
 }
 module.exports = { checkWindowsPackage, checkWindowsLauncher };

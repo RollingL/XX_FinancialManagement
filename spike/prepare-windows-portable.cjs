@@ -119,8 +119,6 @@ function probePackage(app, launcher) {
       XX_FINANCE_USER_DATA_DIR: isolated,
       XX_FINANCE_DATA_DIR: path.join(isolated, 'ledger'),
       XX_FINANCE_BACKUP_DIR: path.join(isolated, 'backups'),
-      PYTHONPATH: '',
-      PYTHONHOME: '',
       PATH: path.join(process.env.SystemRoot, 'System32'),
     };
     delete env.ELECTRON_RUN_AS_NODE;
@@ -135,34 +133,7 @@ function probePackage(app, launcher) {
     assert.equal(report.sqlite?.status, 'passed');
     assert.equal(report.sqlite?.platform, 'win32');
     assert.equal(report.sqlite?.arch, 'x64');
-    assert.equal(report.ocr?.status, 'passed');
-    const image = path.join(app, 'resources', 'ocr-sample.png');
-    const requests = [
-      { id: 'synthetic-validation', image_path: image, validate_only: true },
-      { id: 'synthetic-ocr', image_path: image },
-    ];
-    const replies = execFileSync(
-      path.join(app, 'resources', 'ocr-probe', 'ocr-probe.exe'),
-      ['--serve'],
-      {
-        env,
-        input: requests.map((x) => JSON.stringify(x)).join('\n') + '\n',
-        encoding: 'utf8',
-        maxBuffer: 4 * 1024 * 1024,
-        windowsHide: true,
-      },
-    )
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line));
-    assert.equal(replies.length, 2);
-    assert.equal(replies[0].id, requests[0].id);
-    assert.equal(replies[0].result?.validated, true);
-    assert.equal(replies[1].id, requests[1].id);
-    assert.equal(replies[1].ok, true);
-    assert.ok(replies[1].result?.texts?.some((text) => /1,?280\.50/.test(text)));
-    assert.equal(replies[1].result.extraction.auto_bookkeeping, false);
-    return { ...report, workerPipe: { validation: 'passed', ocr: 'passed' } };
+    return report;
   } finally {
     fs.rmSync(isolated, { recursive: true, force: true });
   }
@@ -224,38 +195,6 @@ async function prepare() {
       `Private path in packaged source: ${entry}`,
     );
   assert.ok(entries.some((entry) => entry.replaceAll('\\', '/').endsWith('/dist/index.html')));
-  const worker = path.join(app, 'resources', 'ocr-probe');
-  for (const name of [
-    'ocr-probe.exe',
-    '_internal/python312.dll',
-    '_internal/msvcp140.dll',
-    '_internal/vcruntime140.dll',
-    '_internal/vcruntime140_1.dll',
-  ])
-    assert.ok(fs.statSync(path.join(worker, name)).isFile(), `Missing bundled runtime: ${name}`);
-  const models = {
-    'PP-OCRv6_det_small.onnx': '090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f',
-    'ch_ppocr_mobile_v2.0_cls_mobile.onnx':
-      'e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c',
-    'PP-OCRv6_rec_small.onnx': '6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884',
-  };
-  for (const [name, hash] of Object.entries(models))
-    assert.equal(
-      crypto
-        .createHash('sha256')
-        .update(fs.readFileSync(path.join(worker, '_internal', 'models', name)))
-        .digest('hex'),
-      hash,
-      `Model checksum mismatch: ${name}`,
-    );
-  for (const file of fs
-    .readdirSync(path.join(worker, '_internal'))
-    .filter((name) => /^(?:msvcp|vcruntime|concrt).*\.dll$/i.test(name)))
-    fs.copyFileSync(
-      path.join(worker, '_internal', file),
-      path.join(app, file),
-      fs.constants.COPYFILE_EXCL,
-    );
   const launcher = path.join(root, 'out', 'windows-launcher', 'Qianlai.exe');
   require('./windows-package-check.cjs').checkWindowsLauncher(launcher);
   fs.mkdirSync(destination, { recursive: true });
@@ -268,7 +207,7 @@ async function prepare() {
   const report = probePackage(path.join(destination, 'app'), path.join(destination, 'Qianlai.exe'));
   fs.mkdirSync(path.join(destination, 'samples'));
   fs.copyFileSync(
-    path.join(root, 'spike', 'fixtures', 'ocr-sample.png'),
+    path.join(root, 'tests', 'fixtures', 'synthetic-payment.png'),
     path.join(destination, 'samples', 'synthetic-payment.png'),
   );
   fs.writeFileSync(path.join(destination, 'START-TEST.cmd'), launchScript(buildId));
@@ -293,10 +232,6 @@ async function prepare() {
       null,
       2,
     ),
-  );
-  fs.copyFileSync(
-    path.join(root, 'out', 'windows-python-freeze.txt'),
-    path.join(destination, 'build-python-dependencies.txt'),
   );
   const manifest = filesBelow(destination).map((file) => ({
     file: path.relative(destination, file).replaceAll('\\', '/'),

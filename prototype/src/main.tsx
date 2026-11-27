@@ -126,7 +126,7 @@ function App() {
     [saving, setSaving] = useState(false),
     [cancelId, setCancelId] = useState<number | null>(null);
   const [attachment, setAttachment] = useState<File | null>(null),
-    [ocrBusy, setOcrBusy] = useState(false),
+    [imageBusy, setImageBusy] = useState(false),
     [loaded, setLoaded] = useState(false);
   const [pickerQuery, setPickerQuery] = useState(''),
     [pickerCategory, setPickerCategory] = useState('全部');
@@ -234,7 +234,7 @@ function App() {
   }, [panel]);
   function close() {
     if (saveLock.current) return;
-    setOcrBusy(false);
+    setImageBusy(false);
     setAttachment(null);
     setPanel(null);
     setError('');
@@ -250,7 +250,7 @@ function App() {
   function openNew() {
     requestId.current = crypto.randomUUID();
     setAttachment(null);
-    setOcrBusy(false);
+    setImageBusy(false);
     setNewCategory(category === '办公' ? '办公' : '接待');
     setDate(today());
     setMerchant('');
@@ -261,7 +261,7 @@ function App() {
   }
   function openAdvance() {
     requestId.current = crypto.randomUUID();
-    setOcrBusy(false);
+    setImageBusy(false);
     setAttachment(null);
     setDate(today());
     setAmount('');
@@ -271,7 +271,7 @@ function App() {
   }
   async function saveAdvance(event: React.FormEvent) {
     event.preventDefault();
-    if (saveLock.current || ocrBusy) return;
+    if (saveLock.current || imageBusy) return;
     try {
       const value = cents(amount);
       sum([...advances, value]);
@@ -478,7 +478,7 @@ function App() {
   }
   async function saveExpense(event: React.FormEvent) {
     event.preventDefault();
-    if (saveLock.current || ocrBusy) return;
+    if (saveLock.current || imageBusy) return;
     try {
       const value = cents(amount);
       if (!merchant.trim() || !date) throw new Error('请填写商户或采购摘要，并确认日期');
@@ -1198,10 +1198,10 @@ function App() {
               <ExpenseScreenshot
                 kind="advance"
                 onFile={setAttachment}
-                onBusy={setOcrBusy}
+                onBusy={setImageBusy}
                 disabled={saving}
               />
-              <fieldset className="expense-fields" disabled={saving || ocrBusy}>
+              <fieldset className="expense-fields" disabled={saving || imageBusy}>
                 <label className="field">
                   实际到账金额（元）
                   <input
@@ -1260,7 +1260,7 @@ function App() {
               <button type="button" onClick={close}>
                 取消
               </button>
-              <button type="submit" className="primary" disabled={saving || ocrBusy}>
+              <button type="submit" className="primary" disabled={saving || imageBusy}>
                 {saving ? '保存中…' : '确认登记到账'}
               </button>
             </footer>
@@ -1269,17 +1269,8 @@ function App() {
         {panel === 'new' && (
           <form onSubmit={saveExpense}>
             <div className="drawer-body">
-              <ExpenseScreenshot
-                onFile={setAttachment}
-                onFields={(fields) => {
-                  setAmount(fields.amount);
-                  setDate(fields.date);
-                  setMerchant(fields.merchant);
-                }}
-                onBusy={setOcrBusy}
-                disabled={saving}
-              />
-              <fieldset className="expense-fields" disabled={saving || ocrBusy}>
+              <ExpenseScreenshot onFile={setAttachment} onBusy={setImageBusy} disabled={saving} />
+              <fieldset className="expense-fields" disabled={saving || imageBusy}>
                 <div className="segmented" role="group" aria-label="费用类别">
                   {(['接待', '办公'] as const).map((c) => (
                     <button
@@ -1356,7 +1347,7 @@ function App() {
               <button type="button" onClick={close}>
                 取消
               </button>
-              <button className="primary" disabled={saving || ocrBusy} type="submit">
+              <button className="primary" disabled={saving || imageBusy} type="submit">
                 {saving ? '保存中…' : '确认并保存费用'}
               </button>
             </footer>

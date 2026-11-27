@@ -9,7 +9,6 @@ module.exports = {
     name: 'XXFinanceStage0',
     executableName: 'xx-finance-stage0',
     asar: true,
-    extraResource: ['spike/ocr-dist/ocr-probe', 'spike/fixtures/ocr-sample.png', 'spike/licenses'],
     ignore: [
       /^\/out(?:\/|$)/,
       /^\/\.github(?:\/|$)/,
@@ -20,9 +19,6 @@ module.exports = {
       /^\/docs/,
       /^\/tests/,
       /^\/prototype/,
-      /^\/\.venv-ocr/,
-      /^\/spike\/ocr-(build|dist)/,
-      /^\/spike\/models/,
       /^\/spike\/windows-launcher\.cpp$/,
       /^\/\.impeccable/,
     ],

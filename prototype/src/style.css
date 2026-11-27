@@ -1027,13 +1027,6 @@ dd {
 .screenshot-actions button {
   font-size: 12px;
 }
-.ocr-raw {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 180px;
-  overflow: auto;
-  font: 12px/1.6 monospace;
-}
 .expense-screenshot input[type='file'] {
   font-size: 12px;
   width: 100%;

@@ -19,7 +19,6 @@ const png = Buffer.from(
   'base64',
 );
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
-const service = { recognize: async () => ({ validated: true }) };
 const editable = (e) => ({
   category: e.category,
   date: e.date,
@@ -84,7 +83,7 @@ function fixture(t) {
   const opened = new Set();
   let ledger;
   const open = (directory = source) => {
-    const value = createManagedLedger(directory, service);
+    const value = createManagedLedger(directory);
     opened.add(value);
     return value;
   };
@@ -611,7 +610,7 @@ test('resealed invalid audit cannot bypass backup verification, restore or manag
     db.prepare('UPDATE trial_state SET json=?').run(JSON.stringify(state));
   });
   const before = snapshot(f.source);
-  assert.throws(() => createManagedLedger(f.source, service), /链不连续/);
+  assert.throws(() => createManagedLedger(f.source), /链不连续/);
   assert.equal(fs.existsSync(path.join(f.source, '.writer-lock')), false);
   assert.deepEqual(snapshot(f.source), before);
 });
@@ -619,7 +618,7 @@ test('resealed invalid audit cannot bypass backup verification, restore or manag
 test('legacy JSON without operations or correction history keeps original bytes and manifest summary format', async (t) => {
   const f = fixture(t),
     source = path.join(f.root, 'legacy'),
-    ledger = createLedger(source, service);
+    ledger = createLedger(source);
   ledger.close();
   const raw =
     '{"expenses": [{"id":1,"category":"接待","date":"2026-10-12","merchant":"合成旧费用","amount":1,"note":"","invoice":0}], "advances": [1], "batches": []}';

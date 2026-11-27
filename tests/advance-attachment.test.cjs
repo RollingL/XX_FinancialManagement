@@ -6,7 +6,8 @@ const fs = require('node:fs'),
   { randomUUID } = require('node:crypto');
 const Database = require('better-sqlite3');
 const { createLedger } = require('../spike/trial-ledger.cjs');
-const { MAX_BYTES } = require('../spike/ocr-service.cjs');
+const { MAX_IMAGE_BYTES } = require('../spike/image-check.cjs');
+const { pngHeaderOnly } = require('./synthetic-image.cjs');
 
 // Generated 1 × 1 PNG; no payment screenshot, receipt text or user data.
 const png = Buffer.from(
@@ -20,30 +21,21 @@ const advance = (amount = 12345, extra = {}) => ({
   image: { base64: png.toString('base64') },
   ...extra,
 });
-function fixture(t, validate = async () => ({ validated: true })) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-advance-attachment-')),
-    calls = [];
-  const service = {
-    recognize: async (bytes, options) => {
-      calls.push({ bytes: Buffer.from(bytes), options });
-      assert.deepEqual(options, { validateOnly: true });
-      return validate(bytes);
-    },
-  };
-  let ledger = createLedger(root, service);
+function fixture(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-advance-attachment-'));
+  let ledger = createLedger(root);
   t.after(() => {
     ledger.close();
     fs.rmSync(root, { recursive: true, force: true });
   });
   return {
     root,
-    calls,
     get ledger() {
       return ledger;
     },
     reopen() {
       ledger.close();
-      ledger = createLedger(root, service);
+      ledger = createLedger(root);
     },
     db(fn) {
       const db = new Database(path.join(root, 'trial.sqlite'));
@@ -88,7 +80,7 @@ const cash = (s) => ({
   balance: s.advances.reduce((a, b) => a + b, 0) - s.expenses.reduce((a, e) => a + e.amount, 0),
 });
 
-test('advance attachment persists and reopens; idempotent retry skips decoding and creates no duplicate file', async (t) => {
+test('advance attachment persists and reopens; idempotent retry creates no duplicate file', async (t) => {
   const f = fixture(t),
     input = advance(),
     state = await f.ledger.command(input),
@@ -106,8 +98,6 @@ test('advance attachment persists and reopens; idempotent retry skips decoding a
   assert.equal(saved.operations.length, 1);
   assert.equal(saved.files.length, 1);
   assert.equal(saved.operations[0].created_at, state.advanceDetails[0].createdAt);
-  assert.equal(f.calls.length, 1);
-  assert.deepEqual(f.calls[0].bytes, png);
   f.reopen();
   assert.deepEqual(await read(f), state);
   assert.deepEqual(await f.ledger.command({ kind: 'attachment', id }), {
@@ -115,13 +105,11 @@ test('advance attachment persists and reopens; idempotent retry skips decoding a
     base64: png.toString('base64'),
   });
   assert.deepEqual(await f.ledger.command(input), state);
-  assert.equal(f.calls.length, 1);
   assert.deepEqual(await snapshot(f), saved);
   await assert.rejects(
     f.ledger.command({ ...input, image: { base64: 'changed' } }),
     /重复请求内容不一致/,
   );
-  assert.equal(f.calls.length, 1);
   assert.deepEqual(await snapshot(f), saved);
 });
 
@@ -144,15 +132,14 @@ test('attachment is optional and legacy advance amounts remain undated and uncha
   const saved = await snapshot(f);
   assert.deepEqual(saved.attachments, []);
   assert.deepEqual(saved.files, []);
-  assert.equal(f.calls.length, 0);
   f.reopen();
   assert.deepEqual(await read(f), state);
 });
 
-test('advance image rejects invalid base64, unsupported signatures and byte overflow before decoding', async (t) => {
+test('advance image rejects invalid base64, unsupported signatures and byte overflow', async (t) => {
   const f = fixture(t),
     before = await snapshot(f);
-  const tooLarge = Buffer.alloc(MAX_BYTES + 1);
+  const tooLarge = Buffer.alloc(MAX_IMAGE_BYTES + 1);
   png.copy(tooLarge);
   for (const base64 of [
     '',
@@ -164,30 +151,31 @@ test('advance image rejects invalid base64, unsupported signatures and byte over
     await assert.rejects(f.ledger.command(advance(1, { image: { base64 } })));
     assert.deepEqual(await snapshot(f), before);
   }
-  assert.equal(f.calls.length, 0);
 });
 
-test('decoder failure and pixel-limit rejection leave no ledger change or managed file; corrected request retries', async (t) => {
-  let failure = 'synthetic invalid PNG decode';
-  const f = fixture(t, async () => {
-      if (failure) throw Error(failure);
-      return { validated: true };
-    }),
+test('damaged, truncated and over-sized images leave no ledger change or file; a valid retry saves', async (t) => {
+  const f = fixture(t),
     before = await snapshot(f),
     input = advance();
-  await assert.rejects(f.ledger.command(input), /invalid PNG decode/);
-  assert.deepEqual(await snapshot(f), before);
-  failure = 'synthetic image exceeds 20000000 pixels';
-  await assert.rejects(f.ledger.command(input), /20000000 pixels/);
-  assert.deepEqual(await snapshot(f), before);
-  failure = '';
-  const state = await f.ledger.command(input);
+  const damaged = Buffer.from(png);
+  damaged[damaged.length - 20] ^= 1;
+  for (const [bytes, message] of [
+    [damaged, /损坏或不完整/],
+    [png.subarray(0, png.length - 12), /损坏或不完整/],
+    [pngHeaderOnly(5000, 4001), /2000 万像素/],
+  ]) {
+    await assert.rejects(
+      f.ledger.command({ ...input, image: { base64: bytes.toString('base64') } }),
+      message,
+    );
+    assert.deepEqual(await snapshot(f), before);
+  }
+  const state = await f.ledger.command(advance());
   assert.deepEqual(state.advances, [12345]);
-  assert.equal(f.calls.length, 3);
   assert.equal((await snapshot(f)).files.length, 1);
 });
 
-test('invalid advance fields are rejected before image validation and filesystem writes', async (t) => {
+test('invalid advance fields are rejected before any filesystem write', async (t) => {
   const f = fixture(t),
     before = await snapshot(f);
   for (const invalid of [
@@ -200,7 +188,6 @@ test('invalid advance fields are rejected before image validation and filesystem
     await assert.rejects(f.ledger.command(advance(1, { advance: invalid })));
     assert.deepEqual(await snapshot(f), before);
   }
-  assert.equal(f.calls.length, 0);
 });
 
 test('failure after attachment and state writes rolls back all tables and removes the new file; same request can retry', async (t) => {
@@ -228,7 +215,6 @@ test('transaction rechecks cumulative cents and cleans only the failed request f
   await f.ledger.command(advance(Number.MAX_SAFE_INTEGER));
   const before = await snapshot(f);
   await assert.rejects(f.ledger.command(advance(1)), /合计超出安全范围/);
-  assert.equal(f.calls.length, 2);
   assert.deepEqual(await snapshot(f), before);
   f.reopen();
   assert.deepEqual(await snapshot(f), before);
@@ -287,23 +273,12 @@ test('expense and advance attachments coexist; reimbursement save and cancel pre
     });
 });
 
-test('concurrent duplicate save is rejected while validation runs; completed retry remains idempotent', async (t) => {
-  let finish;
-  const f = fixture(
-      t,
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    ),
-    input = advance(),
-    pending = f.ledger.command(input);
-  await assert.rejects(f.ledger.command(input), /正在保存/);
-  assert.equal(f.calls.length, 1);
-  finish({ validated: true });
-  const state = await pending;
-  assert.deepEqual(await f.ledger.command(input), state);
-  assert.equal(f.calls.length, 1);
+test('the same request sent twice at once saves one record and one file', async (t) => {
+  const f = fixture(t),
+    input = advance();
+  const [first, second] = await Promise.all([f.ledger.command(input), f.ledger.command(input)]);
+  assert.deepEqual(second, first);
+  assert.deepEqual(first.advances, [12345]);
   const saved = await snapshot(f);
   assert.equal(saved.files.length, 1);
   assert.equal(saved.attachments.length, 1);

@@ -7,11 +7,12 @@ const { randomUUID } = require('node:crypto');
 const Database = require('better-sqlite3');
 const { createManagedLedger } = require('../spike/managed-ledger.cjs');
 const { verifyBackup } = require('../spike/ledger-backup.cjs');
+const { syntheticPng } = require('./synthetic-image.cjs');
 function fixture(t) {
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-restore-ui-'))),
     root = path.join(parent, 'ledger');
   let ledger;
-  const open = () => (ledger = createManagedLedger(root, undefined, { backupDestination: parent }));
+  const open = () => (ledger = createManagedLedger(root, { backupDestination: parent }));
   t.after(async () => {
     await ledger?.close();
     fs.rmSync(parent, { recursive: true, force: true });
@@ -290,9 +291,8 @@ test('restored state retains both reminder values, attachments and histories acr
   const parent = fs.realpathSync(
       fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-upgrade-reminder-')),
     ),
-    root = path.join(parent, 'ledger'),
-    service = { recognize: async () => ({ validated: true }) };
-  let ledger = createManagedLedger(root, service, { backupDestination: parent });
+    root = path.join(parent, 'ledger');
+  let ledger = createManagedLedger(root, { backupDestination: parent });
   t.after(async () => {
     await ledger.close();
     fs.rmSync(parent, { recursive: true, force: true });
@@ -303,7 +303,7 @@ test('restored state retains both reminder values, attachments and histories acr
       generation: (await ledger.command({ kind: 'read' })).generation,
       ...body,
     });
-  const image = { base64: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]).toString('base64') };
+  const image = { base64: syntheticPng({ seed: 1 }).toString('base64') };
   await advance(ledger, 101);
   for (const category of ['接待', '办公'])
     await send({
@@ -355,7 +355,7 @@ test('restored state retains both reminder values, attachments and histories acr
   assert.equal(verifyBackup(result.backupDirectory).summary.totalAdvanceCents, '303');
   for (let restart = 0; restart < 2; restart++) {
     await ledger.close();
-    ledger = createManagedLedger(root, service, { backupDestination: parent });
+    ledger = createManagedLedger(root, { backupDestination: parent });
     assert.equal(ledger.root, active);
     assert.deepEqual(
       { ...(await ledger.command({ kind: 'read' })), generation: original.generation },

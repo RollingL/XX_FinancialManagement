@@ -19,7 +19,7 @@ function fixture(t) {
     source = path.join(root, 'source'),
     destination = path.join(root, 'backups');
   fs.mkdirSync(destination);
-  const ledger = createLedger(source, { recognize: async () => ({ validated: true }) });
+  const ledger = createLedger(source);
   const db = new Database(path.join(source, 'trial.sqlite'), {
       readonly: true,
       fileMustExist: true,

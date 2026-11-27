@@ -8,7 +8,7 @@ const { createLedger } = require('../spike/trial-ledger.cjs'),
   { seedLegacyInvoices } = require('./legacy-invoice-fixture.cjs');
 test('legacy invoice associations and release history do not lock expense corrections or affect reimbursement limits', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-retired-invoice-edit-')),
-    ledger = createLedger(root, { recognize: async () => ({}) });
+    ledger = createLedger(root);
   t.after(() => {
     ledger.close();
     fs.rmSync(root, { recursive: true, force: true });

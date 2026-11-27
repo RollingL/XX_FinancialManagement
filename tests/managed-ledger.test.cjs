@@ -9,6 +9,7 @@ const { createManagedLedger, acquireManagedLock } = require('../spike/managed-le
 const { parse, main: maintenance } = require('../spike/ledger-maintenance.cjs');
 const { createLedger } = require('../spike/trial-ledger.cjs');
 const Database = require('better-sqlite3');
+const { syntheticPng } = require('./synthetic-image.cjs');
 const generations = new WeakMap();
 const send = (ledger, input) =>
   ledger.command({
@@ -22,8 +23,8 @@ const advance = () => ({
   requestId: randomUUID(),
   advance: { amount: 100, date: '2026-10-12', note: 'synthetic advance' },
 });
-const image = { base64: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).toString('base64') };
-function fixture(t, service, dependencies) {
+const image = { base64: syntheticPng().toString('base64') };
+function fixture(t, dependencies) {
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-managed-test-'))),
     root = path.join(parent, 'ledger');
   let ledger;
@@ -35,7 +36,7 @@ function fixture(t, service, dependencies) {
     root,
     parent,
     open() {
-      ledger = createManagedLedger(root, service, dependencies);
+      ledger = createManagedLedger(root, dependencies);
       const db = new Database(path.join(root, 'trial.sqlite'), {
         readonly: true,
         fileMustExist: true,
@@ -177,74 +178,11 @@ test('symlink roots, marker, database, attachments and WAL are refused', async (
   assert.equal(fs.readFileSync(outside, 'utf8'), 'synthetic');
 });
 
-test('pending attachment validation reserves the gate and close keeps the lock until save finishes', async (t) => {
-  const waiting = deferred(),
-    started = deferred();
-  let backupCalls = 0;
-  const f = fixture(
-      t,
-      {
-        recognize() {
-          started.resolve();
-          return waiting.promise;
-        },
-      },
-      {
-        createBackup: async () => {
-          backupCalls++;
-        },
-      },
-    ),
-    ledger = f.open();
-  const pending = send(ledger, { ...advance(), image });
-  await started.promise;
-  await assert.rejects(ledger.backup(f.parent), /正在保存或维护/);
-  assert.equal(backupCalls, 0);
-  await assert.rejects(send(ledger, advance()), /正在保存或维护/);
-  const closing = ledger.close();
-  assert.equal(fs.existsSync(path.join(f.root, lockName)), true);
-  assert.throws(() => createManagedLedger(f.root), /残留锁/);
-  await assert.rejects(ledger.command({ kind: 'read' }), /正在关闭/);
-  waiting.resolve({});
-  await pending;
-  await closing;
-  assert.equal(fs.existsSync(path.join(f.root, lockName)), false);
-  const reopened = f.open(),
-    state = await reopened.command({ kind: 'read' });
-  assert.deepEqual(state.advances, [100]);
-  assert.ok(state.advanceDetails[0].attachmentId);
-  assert.equal(fs.readdirSync(path.join(f.root, 'attachments')).length, 1);
-});
-
-test('close waits for failed attachment validation and leaves no partial record or file', async (t) => {
-  const waiting = deferred(),
-    started = deferred(),
-    f = fixture(t, {
-      recognize() {
-        started.resolve();
-        return waiting.promise;
-      },
-    }),
-    ledger = f.open();
-  const pending = send(ledger, { ...advance(), image });
-  await started.promise;
-  const rejected = assert.rejects(pending, /synthetic validation cancelled/),
-    closing = ledger.close();
-  assert.equal(fs.existsSync(path.join(f.root, lockName)), true);
-  waiting.reject(Error('synthetic validation cancelled'));
-  await rejected;
-  await closing;
-  assert.equal(fs.existsSync(path.join(f.root, lockName)), false);
-  assert.deepEqual(fs.readdirSync(path.join(f.root, 'attachments')), []);
-  const state = await f.open().command({ kind: 'read' });
-  assert.deepEqual([state.expenses, state.batches, state.advances], [[], [], []]);
-});
-
 test('backup uses a readonly existing database, rejects concurrent commands, and closes before releasing lock', async (t) => {
   const waiting = deferred(),
     started = deferred();
   let backupDb;
-  const f = fixture(t, undefined, {
+  const f = fixture(t, {
       createBackup: async (options) => {
         backupDb = options.db;
         assert.equal(options.sourceKind, 'isolated-test');
@@ -273,7 +211,7 @@ test('backup uses a readonly existing database, rejects concurrent commands, and
 });
 
 test('failed maintenance frees the gate but holds the lifetime lock until close', async (t) => {
-  const f = fixture(t, undefined, {
+  const f = fixture(t, {
       createBackup: async () => {
         throw Error('synthetic backup failure');
       },
@@ -411,31 +349,6 @@ test('generation is created only for new roots and stale requests fail before ba
   );
 });
 
-test('reset waits for OCR service shutdown while the gate rejects other work', async (t) => {
-  const started = deferred(),
-    finished = deferred(),
-    f = fixture(t, {
-      stop() {
-        started.resolve();
-      },
-      finished: finished.promise,
-    }),
-    ledger = f.open();
-  const generation = (await ledger.command({ kind: 'read' })).generation;
-  const pending = ledger.command({
-    kind: 'reset-ledger',
-    requestId: randomUUID(),
-    generation,
-    confirmation: '清空当前账本',
-  });
-  await started.promise;
-  await assert.rejects(ledger.command({ ...advance(), generation }), /正在保存或维护/);
-  await assert.rejects(ledger.command({ kind: 'read' }), /正在保存或维护/);
-  finished.resolve();
-  assert.equal((await pending).completed, true);
-  await assert.rejects(ledger.command({ ...advance(), generation }), /代际已变化/);
-});
-
 test('configured backup uses only trusted destination, same-process idempotency and maintenance gate', async (t) => {
   let calls = 0;
   const started = deferred(),
@@ -449,7 +362,7 @@ test('configured backup uses only trusted destination, same-process idempotency 
         return { directory: 'synthetic-backup', summary: { balanceCents: '0' } };
       },
     };
-  const f = fixture(t, undefined, options);
+  const f = fixture(t, options);
   options.backupDestination = f.parent;
   const ledger = f.open(),
     generation = (await ledger.command({ kind: 'read' })).generation;
@@ -478,22 +391,11 @@ test('configured backup uses only trusted destination, same-process idempotency 
 });
 
 test('reset changes generation, clears data and attachments, and completed retries preserve subsequent data', async (t) => {
-  let stops = 0,
-    backups = 0;
+  let backups = 0;
   const options = {
     createBackup: async () => ({ directory: `synthetic-${++backups}`, summary: {} }),
   };
-  const f = fixture(
-    t,
-    {
-      recognize: async () => ({}),
-      stop() {
-        stops++;
-      },
-      finished: Promise.resolve(),
-    },
-    options,
-  );
+  const f = fixture(t, options);
   options.backupDestination = f.parent;
   const ledger = f.open(),
     oldGeneration = (await ledger.command({ kind: 'read' })).generation,
@@ -511,7 +413,6 @@ test('reset changes generation, clears data and attachments, and completed retri
   const result = await ledger.command(reset);
   assert.equal(result.completed, true);
   assert.notEqual(result.generation, oldGeneration);
-  assert.equal(stops, 1);
   const state = await ledger.command({ kind: 'read' });
   assert.deepEqual([state.advances, state.expenses, state.batches], [[], [], []]);
   assert.deepEqual(fs.readdirSync(path.join(f.root, 'attachments')), []);
@@ -523,7 +424,6 @@ test('reset changes generation, clears data and attachments, and completed retri
   const current = await ledger.command({ ...advance(), image, generation: result.generation });
   assert.equal(current.advances.length, 1);
   assert.equal((await ledger.command(reset)).completed, true);
-  assert.equal(stops, 1);
   assert.deepEqual(await ledger.command({ kind: 'read' }), current);
   assert.equal(fs.readdirSync(path.join(f.root, 'attachments')).length, 1);
   await ledger.command({
@@ -585,7 +485,7 @@ test('prepared reset restarts in restricted mode and CLI backup refuses until th
 });
 
 test('cleanup failure blocks read/write/backup and same-request continuation survives restart', async (t) => {
-  const f = fixture(t, { recognize: async () => ({}) }),
+  const f = fixture(t),
     ledger = f.open();
   await send(ledger, { ...advance(), image });
   const generation = (await ledger.command({ kind: 'read' })).generation,
