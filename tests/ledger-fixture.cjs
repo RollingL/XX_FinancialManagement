@@ -1,21 +1,20 @@
 // Shared helpers for ledger tests. Every ledger is a new temporary folder with obviously
 // synthetic records; no real ledger is ever opened.
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { openLedger } = require('../src/main/ledger.cjs');
 const { TABLE_NAMES } = require('../src/main/ledger-schema.cjs');
 const { syntheticPng } = require('./synthetic-image.cjs');
+const { cleanup, temporaryFolder } = require('./test-cleanup.cjs');
 
 // The ledger keeps its database locked, so tests read and change it through the
 // ledger's own connection (ledger.database).
 function ledgerFixture(t, prefix = 'qianlai-ledger-') {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const dir = temporaryFolder(t, prefix);
   let ledger = openLedger(dir);
-  t.after(() => {
+  cleanup(t, () => {
     if (ledger.database.open) ledger.close();
-    fs.rmSync(dir, { recursive: true, force: true });
   });
   return {
     dir,
