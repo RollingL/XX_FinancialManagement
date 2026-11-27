@@ -87,6 +87,9 @@ function harness(options = {}) {
   const app = new EventEmitter(),
     paths = {};
   app.isPackaged = !!options.packaged;
+  app.commandLine = {
+    appendSwitch: (name, value) => calls.push({ kind: 'switch', name, value }),
+  };
   app.requestSingleInstanceLock = () => {
     calls.push({ kind: 'single-instance' });
     return options.primary !== false;
@@ -175,6 +178,10 @@ function harness(options = {}) {
         app,
         BrowserWindow,
         ipcMain,
+        Menu: {
+          buildFromTemplate: (template) => ({ template }),
+          setApplicationMenu: (menu) => calls.push({ kind: 'menu', menu }),
+        },
         dialog: {
           showOpenDialog: async (win, settings) => {
             calls.push({ kind: 'choose', win, settings });
@@ -202,6 +209,7 @@ function harness(options = {}) {
         },
       };
     if (name === './ledger-schema.cjs') return schema;
+    if (name === './app-menu.cjs') return require('../src/main/app-menu.cjs');
     if (name === './ledger-service.cjs')
       return { openLedgerService: (...args) => factory('openLedgerService', args) };
     if (name === './sqlite-probe.cjs')
@@ -394,6 +402,41 @@ test('the window keeps the desktop security settings', async () => {
   assert.equal(config.webPreferences.sandbox, true);
   assert.equal(config.webPreferences.contextIsolation, true);
   assert.equal(config.webPreferences.nodeIntegration, false);
+});
+
+test('built-in controls use Chinese and Windows gets no menu with Reload or Developer Tools', async () => {
+  for (const platform of ['win32', 'linux']) {
+    const h = harness({ platform });
+    assert.deepEqual(
+      plain(h.calls.filter((call) => call.kind === 'switch')),
+      [{ kind: 'switch', name: 'lang', value: 'zh-CN' }],
+      'set before readiness',
+    );
+    await h.start();
+    assert.deepEqual(plain(h.calls.filter((call) => call.kind === 'menu')), [
+      { kind: 'menu', menu: null },
+    ]);
+    assert.ok(
+      h.calls.findIndex((call) => call.kind === 'menu') <
+        h.calls.findIndex((call) => call.kind === 'window'),
+    );
+  }
+  const mac = harness({ platform: 'darwin' });
+  await mac.start();
+  const { template } = mac.calls.find((call) => call.kind === 'menu').menu;
+  const items = template.flatMap((group) => [group, ...group.submenu]);
+  assert.deepEqual(
+    template.map((group) => group.label),
+    ['钱来', '编辑', '窗口'],
+  );
+  for (const role of ['quit', 'copy', 'paste', 'selectAll'])
+    assert.ok(
+      items.some((item) => item.role === role),
+      role,
+    );
+  for (const role of ['reload', 'forceReload', 'toggleDevTools', 'viewMenu'])
+    assert.ok(!items.some((item) => item.role === role), role);
+  assert.ok(items.every((item) => item.type === 'separator' || /^[一-龥]/.test(item.label)));
 });
 
 test('ledger IPC requires the exact main sender, frame and entry file URL', async () => {

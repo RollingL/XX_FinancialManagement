@@ -1,6 +1,6 @@
 // Electron entry: finds the home folder, opens the ledger, creates the window and
 // passes the window's requests to the ledger. Shuts down only after saves finish.
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -8,6 +8,8 @@ const { spawn } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const isProbe = process.argv.includes('--probe');
 const projectRoot = path.join(__dirname, '..', '..');
+const appMenu = require('./app-menu.cjs');
+app.commandLine.appendSwitch('lang', appMenu.INTERFACE_LANGUAGE);
 
 function ensureDirectory(folder) {
   if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
@@ -241,6 +243,8 @@ if (primary)
         }
         return;
       }
+      const template = appMenu.menuTemplate(process.platform);
+      Menu.setApplicationMenu(template && Menu.buildFromTemplate(template));
       startupEvent('ledger-opening');
       ledger = require('./ledger-service.cjs').openLedgerService(layout.home);
       startupEvent('ledger-open');

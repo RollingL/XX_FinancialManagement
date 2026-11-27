@@ -23,6 +23,7 @@ import { ledgerCommand, imagePayload } from './ledger.ts';
 import AdvanceEditor from './AdvanceEditor.tsx';
 import type { LedgerState } from './ledger.ts';
 import { localDate as today, localDateLabel } from './local-date.ts';
+import BackupStatus from './BackupStatus.tsx';
 import { reimbursementRows } from './reimbursement-draft.ts';
 import { expenseSummary } from './expense-summary.ts';
 import Pagination, { usePagination } from './Pagination.tsx';
@@ -645,10 +646,7 @@ function App() {
             <Icon name="backup" />
             <span>备份</span>
           </button>
-          <p>
-            <span className="dot" />
-            本地账本<small>账目与附件保存在本机</small>
-          </p>
+          <BackupStatus ledger={state} page={category} day={currentDay} />
         </div>
       </aside>
       <main>
@@ -1120,7 +1118,7 @@ function App() {
           </div>
         )}
         <p className="footer-note">
-          账目与附件保存在本机，请定期备份。实际退款和退还预支暂不支持，请勿用修改或删除原记录代替。
+          账本、截图和备份都在钱来文件夹里，每天自动备份。实际退款和退还预支暂不支持，请勿用修改或删除原记录代替。
         </p>
       </main>
       <dialog

@@ -104,6 +104,7 @@ function openLedgerService(
   function information() {
     return {
       generation: generation(),
+      version: backups.APPLICATION_VERSION,
       home: layout.home,
       dataDir: layout.dataDir,
       backupDir: layout.backupDir,

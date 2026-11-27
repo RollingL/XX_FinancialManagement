@@ -114,6 +114,7 @@ test('a new 钱来 folder holds only 数据 and 备份, and an empty ledger is n
     { ...info, generation: typeof info.generation },
     {
       generation: 'string',
+      version: require('../package.json').version,
       home: f.dir,
       dataDir: path.join(f.dir, '数据'),
       backupDir: path.join(f.dir, '备份'),

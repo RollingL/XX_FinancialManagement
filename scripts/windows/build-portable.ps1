@@ -75,7 +75,7 @@ try {
     Invoke-Native -File $npm -Arguments @('--version')
     Invoke-Native -File $npm -Arguments @('ci', '--ignore-scripts', '--no-audit', '--no-fund')
 
-    # Electron 44.7 exposes this explicit installer; no dependency lifecycle scripts run.
+    # Electron 44 exposes this explicit installer; no dependency lifecycle scripts run.
     Assert-RegularFile (Join-Path $workspace 'node_modules/electron/install.js')
     Assert-RegularFile (Join-Path $workspace 'node_modules/electron/checksums.json')
     $env:ELECTRON_INSTALL_PLATFORM = 'win32'

@@ -20,6 +20,7 @@ export type BackupItem = {
 };
 export type MaintenanceInfo = {
   generation: string;
+  version?: string;
   home: string;
   dataDir: string;
   backupDir: string;
@@ -509,6 +510,7 @@ export default function BackupPage({
           </form>
         )}
       </section>
+      {info?.version && <p className="backup-version">钱来 版本 {info.version}</p>}
     </div>
   );
 }

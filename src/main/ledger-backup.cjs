@@ -459,6 +459,7 @@ function removeUnusedScreenshots(db, attachmentsDir) {
 }
 
 module.exports = {
+  APPLICATION_VERSION,
   KINDS,
   STORE,
   MANIFEST,
