@@ -5,10 +5,7 @@
   "reference": {
     "file": "A-雾紫白-低饱和-v2.png",
     "sha256": "8341677a481547f4758d608dea54044ea2be1e20f627ae10786f97606cb35ffc",
-    "dimensions": [
-      1586,
-      992
-    ]
+    "dimensions": [1586, 992]
   },
   "colors": {
     "accent": "#7562ad",
@@ -31,11 +28,7 @@
     "heading": 29,
     "section": 20,
     "body": 14,
-    "summaryAmount": [
-      27,
-      32,
-      36
-    ]
+    "summaryAmount": [27, 32, 36]
   },
   "radii": {
     "card": 17,
@@ -43,12 +36,7 @@
     "input": 10
   },
   "extensions": {
-    "breakpoints": [
-      1450,
-      1250,
-      1000,
-      700
-    ],
+    "breakpoints": [1450, 1250, 1000, 700],
     "motion": "180ms drawer enter only when prefers-reduced-motion: no-preference"
   },
   "components": [

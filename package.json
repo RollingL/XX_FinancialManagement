@@ -1,17 +1,21 @@
 {
-  "name": "xx-finance-stage0",
+  "name": "qianlai",
   "version": "0.0.1",
   "private": true,
   "description": "钱来财务管理系统，本地离线账本",
-  "main": "spike/main.cjs",
+  "main": "src/main/main.cjs",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "test": "node --test tests/*.test.ts tests/*.test.cjs",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" tests/*.test.ts tests/*.test.cjs",
     "start": "npm run build && electron-forge start",
-    "probe:electron": "electron spike/main.cjs --probe",
+    "probe:electron": "electron src/main/main.cjs --probe",
     "package": "npm run build && electron-forge package",
-    "make": "npm run build && electron-forge make"
+    "make": "npm run build && electron-forge make",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run format:check && npm run build && npm test"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
@@ -19,16 +23,17 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "electron": "44.7.0",
     "@electron-forge/cli": "8.0.1",
     "@electron-forge/maker-squirrel": "8.0.1",
     "@electron-forge/maker-zip": "8.0.1",
     "@electron-forge/plugin-auto-unpack-natives": "8.0.1",
-    "vite": "8.3.4",
-    "typescript": "7.0.2",
+    "@types/node": "26.6.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "@types/node": "26.6.5"
+    "electron": "44.7.0",
+    "prettier": "3.10.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.4"
   },
   "type": "module"
 }
