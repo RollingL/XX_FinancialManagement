@@ -1051,7 +1051,7 @@ function App() {
                     <p>
                       {expenses.length
                         ? '调整筛选条件，或记录一笔新费用。'
-                        : '手动录入，或上传支付截图辅助填写。'}
+                        : '填写金额、日期和商户，可附上支付截图作为凭证。'}
                     </p>
                     <button disabled={!loaded} onClick={() => openNew()}>
                       新增费用

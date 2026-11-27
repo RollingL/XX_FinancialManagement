@@ -130,8 +130,8 @@ export default function ScreenshotPicker({
         />
       </label>
       <p className="help">
-        点击选择或拖入单张 PNG / JPEG，最大 20 MiB、2000 万像素；不支持 PDF、SVG 或多图。
-        截图只作为凭证保存，不会自动填写金额。
+        {'点击选择或拖入单张 PNG / JPEG，最大 20 MiB、2000 万像素；不支持 PDF、SVG 或多图。' +
+          '截图只作为凭证保存，不会自动填写金额。'}
       </p>
       {message && (
         <p role="status" className="help">
