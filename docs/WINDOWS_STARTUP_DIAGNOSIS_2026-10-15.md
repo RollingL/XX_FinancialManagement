@@ -1,10 +1,12 @@
 # Windows 启动故障：2026-10-15
 
-状态：已确认二次报错来源，修复启动诊断缺失和退出码漏报；首次闪退根因及 Windows 10 运行恢复尚未确认。没有删除锁、改账本或停掉任何已有实例；没有推送、构建 Windows、运行 Actions 或发布。
+本文保留 10 月 15 日旧候选的故障排查。当前候选应使用随包的 Qianlai.exe、START-TEST.cmd 与 CHECK-RUNTIME.cmd。后续的启动器、锁恢复和 CI 证据见 [10 月 16 日交付记录](WINDOWS_STABILITY_2026-10-16.md)。
+
+当时状态：已确认二次报错来源，修复启动诊断缺失和退出码漏报；首次闪退根因及 Windows 10 运行恢复尚未确认。没有删除锁、改账本或停掉任何已有实例；没有推送、构建 Windows、运行 Actions 或发布。
 
 ## 截图和版本证据
 
-已从用户指定 Library 文件 `libfile_779b5f5fa38081918c89658bb3c14ff7` 取回 PNG 并实际查看。截图原文：
+已查看用户提供的故障截图。截图原文：
 
 > 本地试用启动失败：账本正在使用或有残留锁，请先正常关闭原实例；不会自动抢锁
 >
@@ -12,7 +14,7 @@
 
 此处是“账本”，不是 OCR 提取结果中的“账号”。截图未显示首次退出码、进程列表或崩溃模块。
 
-GitHub 只读查询确认：run `38379683352` 成功，artifact `11802847123` 未过期，对应源码 `3155f9d938adaf03c744a9088ad56c3f49b6dfaa`，分支 `codex/windows10-offline-acceptance`。artifact 外层 digest 为 `sha256:1ed7c7aabe8da6c1f7831c563970d2ff02de09e1c39eb7bd46c05a9f54ac377d`，它不等同于内层便携 ZIP 的 SHA256。本轮未重新下载整包或核验用户电脑上的字节。
+GitHub 只读查询确认：run `38379683352` 成功，artifact `11802847123` 在当时未过期，对应源码 `3155f9d938adaf03c744a9088ad56c3f49b6dfaa`，分支 `codex/windows10-offline-acceptance`。artifact 外层 digest 为 `sha256:1ed7c7aabe8da6c1f7831c563970d2ff02de09e1c39eb7bd46c05a9f54ac377d`，它不等同于内层便携 ZIP 的 SHA256。本轮未重新下载整包或核验用户电脑上的字节。
 
 本机开始时是干净的 `codex/ui-mist-lavender-v2` / `0033a4c`。故障包相对它有 Windows 备份文件可写句柄 flush、恢复回执测试及构建范围修订；没有改变两个启动文件。远端和本机修改前 Git blob 相同：
 
@@ -41,7 +43,7 @@ GitHub 只读查询确认：run `38379683352` 成功，artifact `11802847123` �
 
 本地旧包辅助文件：`evidence/stage0/windows-startup-2026-10-15/START-DIAGNOSTIC.cmd`、`CHECK-RUNTIME-DIAGNOSTIC.cmd`，固定到上述 artifact 的 build identity。它们可以调用旧 exe 并留存输出；旧 exe 没有本轮新增的主进程阶段事件。这是诊断补充文件，不是已重建或已验收的 Windows 修复包。
 
-## 用户最小操作
+## 当时的旧包取证步骤
 
 1. 保留原解压目录和整个 `trial-data`。将 `START-DIAGNOSTIC.cmd` 放到该包 `START-TEST.cmd` 同一层，双击一次。黑色窗口不要手动关；如果应用正常打开，使用应用窗口的关闭按钮正常结束。脚本最终会显示 `Logs:` 路径和退出码。
 2. 先提供该次目录的 `status.txt`、`stderr.txt`、`processes-before.txt`、`processes-after.txt`。如果首次仍闪退，再查看该目录 `chromium.log` 中最后的错误行。日志可能包含本机用户名／目录，发送前遮去个人路径；无需发送账本、原图或 crash dump。若应用消失但黑色窗口一直等候，保留窗口并记录任务管理器“详细信息”中的 `xx-finance-stage0.exe` PID；不要强制结束。
@@ -58,4 +60,4 @@ GitHub 只读查询确认：run `38379683352` 成功，artifact `11802847123` �
 - 两个修改后 CJS 的 `node --check` 与 `git diff --check` 通过。没有更改 UI、业务金额或 SQLite 模型，不重跑无关 OCR／业务全量回归。
 - Windows 专用测试准备了真实 `cmd.exe` 执行生成脚本、中文／空格／`&`／`!` 路径、零／正／负退出码及日志不覆盖验证；本机为 Mac，明确未执行。未声称 Windows 脚本或新包真机通过。
 
-证据仅在本机 `evidence/stage0/windows-startup-2026-10-15/`，不纳入 Git。本轮修改未提交、未推送。当前明确授权到启动故障本地排查修订；最新任务要求新包前明确权限，且验收基线说未来 Windows 新包需另行授权。因此未将历史构建授权当作这次自动触发 CI 的授权。先取旧包日志即可推进，无需先构建新包。
+证据仅在本机 `evidence/stage0/windows-startup-2026-10-15/`，不纳入 Git。本轮修改未提交、未推送。当日的授权限于本地诊断。后续已有独立授权的构建记录，详见本文顶部链接。
