@@ -1,52 +1,39 @@
-# Windows 验证矩阵（当前全部未验证）
+# Windows 验证矩阵
 
-唯一当前状态见 [STAGE0_STATUS 顶部](STAGE0_STATUS.md#当前状态)。本文是待执行矩阵，不是 Windows 通过报告；本次基础整理未运行构建、安装或恢复。
+目标环境为 Windows 10 Intel x64，使用可完整解压的离线便携 ZIP。实际操作及升级步骤见 [Windows 离线使用说明](WINDOWS_OFFLINE_TRIAL.md)。本文区分用户阶段验收、候选包 CI 与目标机实测。
 
-> 2026-10-12 补充：Windows 仍未验证。最新验收需在“记一笔费用”内上传截图，首次断网自动识别金额/日期/商户、手动修正并确认保存；重启后费用与附件存在且字节一致；退款/余额不补位。验证安装目录与用户数据目录分离，升级不丢 trial.sqlite/attachments。Mac 成功不代替这些检查。
+## 最近一次已验证的候选包
 
-2026-10-10 历史环境记录：当时执行环境仅 macOS arm64，没有 Windows x64 构建机器或测试机，未生成 Windows 安装包、未提交 CI。后续 Windows 机器可用性仍需确认，不以 Windows ARM、Mac 浏览器或 Mac 应用代替。
-开始前填写：Windows 11 具体版本/构建号、x64 CPU、内存、普通用户权限、安装包版本与 SHA256。Windows 10 不在当前兼容承诺内。
+2026-10-16 的候选包对应源码 `21d14a715646e784eb5b6bef62e881000914b75b`。GitHub Windows Server 2022 x64 的 [run 38852211112](https://github.com/RollingL/XX_FinancialManagement/actions/runs/38852211112) 成功。原生启动器 5 项、定向 Node 110 项、Python 通信 4 项通过。最终 ZIP 在新的中文空格路径解压后，随包 SQLite／OCR 探针通过，GUI 经诊断 CMD 与 `Qianlai.exe` 正常启动、关闭并确认进程清理；合成空账本与旧目录标识保留。下载后核对了 ZIP SHA-256 和 272 个文件的大小及哈希。文件名、校验值及错误修复过程见 [稳定性交付记录](WINDOWS_STABILITY_2026-10-16.md)。
 
-## 构建候选命令（PowerShell；未在 Windows 执行）
+这是该提交在 Windows Server runner 的构建与运行证据。已记录的私有产物保留期截止 2026-10-23。查阅该运行可追溯证据，当前源码交接本身不会生成新离线包。
 
-```powershell
-npm ci
-py -3.12 -m venv .venv-ocr
-.\.venv-ocr\Scripts\python.exe -m pip install -r spike\requirements.txt
-.\.venv-ocr\Scripts\python.exe spike\prepare_models.py
-Push-Location spike
-..\.venv-ocr\Scripts\pyinstaller.exe --noconfirm ocr-probe.spec --distpath ocr-dist --workpath ocr-build
-Pop-Location
-npm test
-npm run make
-```
+2026-10-13，用户确认 Mac 九项实测通过，并决定 Windows 同阶段视为验收通过。该阶段决定对应 [当日冻结基线](ACCEPTED_BASELINE_2026-10-13.md)。当时未用包含九项修订的包重新做 Windows 真机实测，已有用户反馈针对更早的候选包。
 
-- 不拷贝 Mac 的 node_modules、.venv-ocr 或 ocr-dist；Windows 原生重装和构建。
-- requirements-macos-arm64.lock.txt 是 Mac 已测传递依赖快照，不是 Windows 锁文件。Windows 解析 requirements.txt 后记录自己的完整锁定清单。
-- npm 12 默认可能阻止 electron-winstaller 安装脚本；Mac 首次安装确有警告。Windows 构建前审阅对应脚本、按 npm install-scripts 工作流批准所需包；未验证此安装器初始化与打包结果。
-- npm test 使用 Node 的 TypeScript 类型剥离能力；当前已测 Node 26.10.0，Windows 首次先用相同主版本验证。
-- Forge package/make 将已构建的 ocr-dist/ocr-probe 整个目录作为资源纳入；缺辅助程序不应当当作完整离线包。
-- Windows 生成的程序带 --probe 可运行隔离 SQLite 与 OCR 探针：探针数据库在新临时目录生成并清理，素材为随包合成截图。
-- `--probe` 使用独立临时合成数据库；正常窗口已使用 SQLite 试用账本并保存费用、附件和报销分配。测试必须显式指定隔离目录，不把正常窗口当作不保存的演示。
+## 构建入口
 
-## 必须分别记录结果
-|检查|当前状态|通过证据|
-|---|---|---|
-|Windows x64 原生模块重建、Forge make|未验证|完整构建日志、包 SHA256、架构|
-|无 Node/Python 的干净系统，普通用户安装|未验证|安装、启动记录，无外装依赖|
-|断网安装并首次 OCR|未验证|空缓存/新用户、网络禁用证据、模型哈希、识别结果|
-|随包 --probe SQLite 及 OCR|未验证|status passed，完整子进程退出码|
-|中文用户名和空格路径|未验证|读写、OCR、导入导出实际操作|
-|100/125/150/200% 缩放|未验证|关键面板无遮挡且操作可达|
-|中文输入法、Ctrl+V|未验证|组合输入不提前提交；OCR 剪贴板入口后续阶段实现|
-|升级与卸载数据保留|未验证|安装目录与数据目录隔离；试用数据也须保护，不能因尚非正式账本而删除；正式升级验收仍待后续阶段|
-|完整备份与恢复失败回退|未实现／未验证|按 [备份恢复方案](BACKUP_RECOVERY_PLAN.md) B01–B16，用隔离合成账本演练后再另行授权真实操作|
-|OCR 子进程权限隔离|未验证|Windows 分支尚无 Mac 同等 OS 禁写约束；需验证不能写账本且无网络依赖|
-|SmartScreen、杀毒、签名及公司机器策略|未验证|真实安装反馈，不能靠关闭安全软件通过|
-|Mac/Windows 时区不同|未验证|业务日期一致；时间字段另存|
-|完整 T01–T30|未验证|在目标 Windows 完整版本执行；阶段 0 不能替代|
+[Windows 工作流](../.github/workflows/windows-offline-trial.yml) 使用 Windows Server 2022 x64、Node 26.10.0、Python 3.12。配置只在专用分支 `codex/windows10-offline-acceptance` 推送或手动触发时运行。构建脚本 [build-windows-trial.ps1](../spike/build-windows-trial.ps1) 要求全新 GitHub-hosted 构建目录，负责锁定 npm 依赖、准备 Windows Python wheels 与模型、PyInstaller、原生 x64 启动器、定向测试、Forge package、ZIP 和解压验证。发起下一次构建前核对授权、免费额度约束和待构建的提交。
 
-## 历史：2026-10-12 金额字段与独立核对面板验证
-Mac 新增金额字段验证：30 张合成图 29 张精确符合预期，1 张小数点错误安全留空。Windows 的字段提取、辅助程序重打包与首次离线测试继续全部未验证。后续可复用 spike/fixtures/ocr-fields 下已保存的图片，不能以 Mac 的报告作为 Windows 通过证据。
+- 通过包内 `build-info.json` 核对源码提交，通过同名校验文件核对内层便携 ZIP。GitHub artifact 外层 ZIP 有独立哈希。
+- Electron 及 OCR 的 Windows CRT 来自构建机 Visual Studio 2022 官方 x64 redist。Mac OCR 辅助程序为 Mach-O arm64，Windows 辅助程序须用 Windows x64 构建。
+- 日常入口为根目录 `Qianlai.exe`，诊断入口为 `START-TEST.cmd` 与 `CHECK-RUNTIME.cmd`。ZIP 含完整 app、合成素材、来源版本与文件哈希，不要求目标机安装开发依赖。
+- 当前出包途径是便携 ZIP。签名、安装器与卸载器均未验证。
 
-当时已接浏览器和 Mac Electron 的独立截图核对 UI，随后被费用内置截图流程替代，Mac worker 又增加系统禁写约束。Windows 上 preload/IPC、临时文件清理、取消进程、随包 worker --serve 与首次离线识别均未实测，不能用 Mac 通过记录替代。
+## 目标机待验收
+
+先记录 `winver` 版本／内部版本号、x64 CPU、权限、候选包源码与 ZIP SHA-256。在普通用户可写的新目录解压，用合成数据操作。单独记录通过、失败和未执行项。
+
+| 检查 | 已有证据 | 仍需在目标 Windows 10 检查 |
+| --- | --- | --- |
+| 初次断网与 OCR | CI 随包 SQLite／OCR、UTF-8 worker 及探针通过 | 无 Node/Python 的空缓存环境完全断网首次启动；识别金额、日期、商户，核对修改后保存，余额／退款不得补位，重开附件字节一致 |
+| 窗口与退出 | CI 实际 GUI 启动、正常关闭、进程清理与重开通过 | 连续启动、Alt+F4、任务管理器强制结束、系统关机后的恢复与账本保护 |
+| 路径与显示 | CI 中文空格解压路径通过 | 中文用户名与空格路径下的业务读写、导入／导出；100/125/150/200% 缩放、中文输入法 |
+| 旧版数据与备份 | CI 保留合成空账本和旧包标识；Mac 合成完整恢复通过 | 按 [升级步骤](WINDOWS_OFFLINE_TRIAL.md#升级已有账本) 使用完整合成旧目录副本，核对历史、余额、附件、活动指针和新目录恢复失败回退。真实账本操作另行授权 |
+| 主机策略与子进程 | Windows 包内运行时和进程监督由 CI 检查 | SmartScreen、杀毒及公司策略；Windows OCR 没有 Mac 等效的 OS 禁写验证 |
+| 业务与时区 | 定向事务测试覆盖报销与资金独立，Mac 关键流程验证通过 | 在目标机按当前业务规则复核日期、资金、报销、开票提醒、备份与附件；正式完整验收范围仍需用户确认 |
+
+## 历史候选与诊断
+
+- 2026-10-15 的 [启动故障记录](WINDOWS_STARTUP_DIAGNOSIS_2026-10-15.md) 针对 `3155f9d938adaf03c744a9088ad56c3f49b6dfaa`、run `38379683352`。已确认二次启动提示来自账本锁。首次闪退根因缺原机日志。
+- 2026-10-13 首个 Windows 10 路线便携候选源码为 `4a67eec82868a9f623795ed879d013237996a51d`。[run 38357413207](https://github.com/RollingL/XX_FinancialManagement/actions/runs/38357413207) 成功，job `115163407045`。包 `Qianlai-Windows10-x64-4a67eec82868.zip` 的 SHA-256 为 `bdbbb2e26c261c82cf200fa980932b73648b6efd31519e92a7a0f7398182baaa`，下载端核对 270 个文件。Artifact `11793327090` 的记录保留期截止 2026-10-20。更早的 Windows 11 目标已被 Windows 10 x64 取代。
+- 2026-10-12 的 [金额提取探针记录](OCR_FIELD_VALIDATION.md) 为 Mac 数据，30 个合成图中 29 个精确匹配，1 个安全留空。旧独立截图核对面板后来被费用录入内的截图流程替换。

@@ -48,3 +48,13 @@ test('HTTP 只接受同源二进制请求，拒绝跨站/Host 伪造/超限',asy
  assert.equal((await request({'content-length':String(MAX_BYTES+1)})).status,413);
  assert.equal((await request({},'GET')).status,405);
 });
+test('shutdown during attachment preparation cannot start a late worker and awaits all child exits',async t=>{
+ const {folder,service}=await setup(t,'hang');
+ const pending=service.recognize(png);const rejected=assert.rejects(pending,/关闭|取消/);
+ await service.close();await rejected;assert.equal(service.child,null);assert.deepEqual(await fs.readdir(folder),[]);
+ await assert.rejects(service.recognize(png),/关闭/);
+});
+test('shutdown of an idle persistent OCR worker waits for its actual process exit',async t=>{
+ const {service}=await setup(t);await service.recognize(png);const child=service.child;assert.equal(child.exitCode,null);
+ await service.close();assert.ok(child.exitCode!==null||child.signalCode!==null);assert.equal(service.child,null);
+});

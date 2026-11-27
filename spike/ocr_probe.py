@@ -17,6 +17,15 @@ socket.create_connection = deny_network
 socket.getaddrinfo = deny_network
 
 
+def configure_stdio():
+    # Node sends UTF-8 JSON through pipes; Windows pipes otherwise use the ANSI code page.
+    # Configure inside the program so this also applies to the frozen executable.
+    for name in ('stdin', 'stdout', 'stderr'):
+        stream = getattr(sys, name, None)
+        if stream is not None and callable(getattr(stream, 'reconfigure', None)):
+            stream.reconfigure(encoding='utf-8', errors='backslashreplace' if name == 'stderr' else 'strict')
+
+
 def create_engine():
     from rapidocr import RapidOCR
     import onnxruntime
@@ -99,7 +108,8 @@ def serve():
         print(json.dumps(response, ensure_ascii=False), flush=True)
 
 
-if __name__ == '__main__':
+def main():
+    configure_stdio()
     if sys.argv[1:] == ['--serve']:
         serve()
     else:
@@ -110,3 +120,7 @@ if __name__ == '__main__':
         except Exception as error:
             print(json.dumps({'status': 'failed', 'error': str(error)}, ensure_ascii=False))
             sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

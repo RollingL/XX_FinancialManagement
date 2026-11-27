@@ -12,15 +12,23 @@ function imageSuffix(bytes){
  throw error('只支持有效的 PNG 或 JPEG 图片，不支持 PDF、SVG 或其他文件');
 }
 class OcrService{
- constructor({command,args,timeoutMs=90000,tempRoot=os.tmpdir()}){Object.assign(this,{command,args,timeoutMs,tempRoot});this.child=null;this.pending=null;this.busy=false;this.finished=Promise.resolve();}
+ constructor({command,args,timeoutMs=90000,tempRoot=os.tmpdir()}){Object.assign(this,{command,args,timeoutMs,tempRoot});this.child=null;this.pending=null;this.busy=false;this.finished=Promise.resolve();this.closing=false;this.children=new Set();this.cancelEpoch=0;}
  stop(message='识别已取消，可手动填写或重试'){
+  this.cancelEpoch++;
   const child=this.child;this.child=null;
   if(child)child.kill('SIGKILL');
   this.pending?.reject(error(message));
  }
+ async close(){
+  this.closing=true;this.stop('应用正在关闭，识别已取消');
+  await this.finished;await Promise.all([...this.children]);
+ }
  worker(){
+  if(this.closing)throw error('应用正在关闭');
   if(this.child)return this.child;
   const child=spawn(this.command,this.args,{stdio:['pipe','pipe','pipe'],windowsHide:true,shell:false});
+  let done;const exited=new Promise(resolve=>{done=resolve;});this.children.add(exited);
+  child.once('close',()=>{this.children.delete(exited);done();});
   this.child=child;let output='';
   child.stderr.resume(); // OCR diagnostics may contain source text; never persist them.
   child.stdin.on('error',()=>{if(this.child===child)this.stop('识别进程不可用，请重试');});
@@ -47,7 +55,8 @@ class OcrService{
   return child;
  }
  async recognize(bytes,{signal,validateOnly=false}={}){
-  const suffix=imageSuffix(bytes);
+  if(this.closing)throw error('应用正在关闭');
+  const epoch=this.cancelEpoch,suffix=imageSuffix(bytes);
   if(this.busy)throw error('已有图片正在识别，请稍后重试',409);
   if(signal?.aborted)throw error('识别已取消');
   this.busy=true;let folder;
@@ -56,7 +65,7 @@ class OcrService{
    folder=await fs.mkdtemp(path.join(this.tempRoot,'xx-finance-ocr-'));
    const imagePath=path.join(folder,'input'+suffix);
    await fs.writeFile(imagePath,bytes,{flag:'wx',mode:0o600});
-   if(signal?.aborted)throw error('识别已取消');
+   if(this.closing||epoch!==this.cancelEpoch||signal?.aborted)throw error('识别已取消或应用正在关闭');
    const child=this.worker();const id=randomUUID();
    return await new Promise((resolve,reject)=>{
     const finish=(callback,value)=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);this.pending=null;callback(value);};

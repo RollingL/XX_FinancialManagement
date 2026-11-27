@@ -3,6 +3,7 @@
 *
 !/.gitignore
 !/AGENTS.md
+!/CLAUDE.md
 !/README.md
 !/PRODUCT.md
 !/DESIGN.md
@@ -10,6 +11,9 @@
 !/package.json
 !/package-lock.json
 !/forge.config.cjs
+!/.github/
+!/.github/workflows/
+!/.github/workflows/windows-offline-trial.yml
 !/vite.config.ts
 !/tsconfig.json
 !/docs/
@@ -24,8 +28,10 @@
 !/prototype/src/*.css
 !/spike/
 !/spike/*.cjs
+!/spike/windows-launcher.cpp
 !/spike/*.py
 !/spike/*.spec
+!/spike/build-windows-trial.ps1
 !/spike/requirements.txt
 !/spike/requirements-macos-arm64.lock.txt
 !/spike/licenses/
@@ -37,6 +43,7 @@
 !/tests/*.py
 !/tests/fixtures/
 !/tests/fixtures/ocr-worker.cjs
+!/tests/fixtures/windows-launcher-child.cpp
 
 # Only these previously documented synthetic images belong in source control.
 !/spike/fixtures/

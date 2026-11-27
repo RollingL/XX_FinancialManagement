@@ -1,210 +1,75 @@
 ---
-name: 本地报销台账
-description: 阶段 0 已实现浅色本地工具界面的视觉记录
+name: 钱来 财务管理系统
+description: 阶段 0 雾紫白 v2 界面实现记录
 colors:
-  accent: "#216653"
-  accent-hover: "#194f40"
-  text: "#24332f"
-  muted: "#626e69"
-  background: "#f4f6f5"
-  surface: "#fff"
-  soft: "#eef3f0"
-  line: "#dce3df"
-  danger: "#a6422e"
-  nav-active: "#dce9e1"
-  nav-text: "#194f3d"
-  status-bg: "#eef1ef"
-  status-text: "#59665e"
-  partial-bg: "#fbf0da"
-  partial-text: "#7f5816"
-  done-bg: "#e7f3ea"
-  done-text: "#2c6140"
-typography:
-  headline:
-    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif"
-    fontSize: "26px"
-    fontWeight: 650
-    letterSpacing: "-0.02em"
-  panel-title:
-    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif"
-    fontSize: "20px"
-    fontWeight: 700
-  section-title:
-    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif"
-    fontSize: "15px"
-    fontWeight: 650
-  body:
-    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif"
-    fontSize: "14px"
-    fontWeight: 400
-  table-body:
-    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif"
-    fontSize: "13px"
-    fontWeight: 400
-  label:
-    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif"
-    fontSize: "12px"
-    fontWeight: 550
-  status:
-    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif"
-    fontSize: "11px"
-    fontWeight: 400
-  summary-amount:
-    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif"
-    fontSize: "30px"
-    fontWeight: 600
-    lineHeight: 1.5
-    letterSpacing: "-0.02em"
-rounded:
-  status: "4px"
-  field: "5px"
-  control: "6px"
-  container: "8px"
-spacing:
-  control-gap: "10px"
-  inset: "18px"
-  panel-inline: "26px"
-components:
-  button-primary:
-    backgroundColor: "{colors.accent}"
-    textColor: "{colors.surface}"
-    rounded: "{rounded.control}"
-    padding: "9px 14px"
-  button-primary-hover:
-    backgroundColor: "{colors.accent-hover}"
-  button-secondary:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.text}"
-    rounded: "{rounded.control}"
-    padding: "9px 14px"
-  input:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.text}"
-    rounded: "{rounded.field}"
-    padding: "9px 11px"
-  status:
-    backgroundColor: "{colors.status-bg}"
-    textColor: "{colors.status-text}"
-    rounded: "{rounded.status}"
-    padding: "4px 7px"
-  navigation-active:
-    backgroundColor: "{colors.nav-active}"
-    textColor: "{colors.nav-text}"
-    rounded: "{rounded.control}"
-    padding: "12px"
-  workspace:
-    backgroundColor: "{colors.surface}"
-    rounded: "{rounded.container}"
+  accent: "#7562ad"
+  accent-hover: "#625091"
+  text: "#242236"
+  muted: "#686579"
+  background: "#f8f8fc"
+  surface: "#fffefd"
+  soft: "#f1edf9"
+  line: "#e8e5ef"
+  nav-active: "#eee8f8"
+  nav-text: "#4d387c"
+  focus: "#8870c0"
+  unpaid: "#a03c52"
+  partial: "#995117"
+  done: "#287456"
 ---
 
-# Design System: 本地报销台账
+# 钱来 · 雾紫白 v2
 
-> 本文与 `.impeccable/design.json` 是既有 UI 的实现记录，不是新的视觉批准。2026-10-12 用户明确反馈视觉不满意，新偏好尚待确认；后续评审范围见 [PROTOTYPE_DIRECTION](docs/PROTOTYPE_DIRECTION.md)，唯一当前状态见 [STAGE0_STATUS 顶部](docs/STAGE0_STATUS.md#当前状态)。本轮不改样式、布局或交互代码。
+2026-10-12 用户明确批准“按这一版再加深饱和度开始执行”。依据本地 `A-雾紫白-低饱和-v2.png`（1586×992），SHA-256：`8341677a481547f4758d608dea54044ea2be1e20f627ae10786f97606cb35ffc`。没有以之后更新的 Library v3 代替。概念图不复制到源码仓库。
 
-## Overview
+本页记录实际 UI；业务权威仍为需求规范，当前范围见 [STAGE0_STATUS](docs/STAGE0_STATUS.md#当前状态)，本轮证据见 [UI_V2_VALIDATION](docs/UI_V2_VALIDATION.md)。这是阶段 0 视觉改版，不扩大业务授权。
 
-**Creative North Star: "清楚的本地工作账本"**
+## 布局与层级
 
-浅色本地工具界面，以清楚的中文、横向金额比较和右侧操作面板组织工作。低饱和绿色标识主要操作，白色工作区与浅灰绿色背景分层，状态同时使用文字。
+- 浅侧栏品牌以主题紫显示“钱来”，提供总览、接待、办公、预支入口。报销记录及备份独立页已开放；费用详情内提供开票提醒。受管入口的备份页提供完整备份、预览后恢复和清空。
+- 总览页首为“你好，小徐同学”，下方显示设备本地年月日及星期；每分钟、窗口重新聚焦或可见性变化时刷新，右侧不重复显示日期。总览及接待／办公页顶部提供新增费用／登记报销；截图识别继续位于费用录入表单内。
+- 三张卡分别显示全账本资金余额、对应页面的全时间费用支出、全账本待报销额。负数同时说明本人垫付，已报销只描述登记进度。
+- 主工作区为费用列表，右侧为待处理及资金规则。总览保留筛选、合计和点击行查看详情，去掉多选框及底部报销工具条；行内按钮独立响应。接待／办公类别页仍保留选择及原报销入口。
+- 总览登记报销无需预选：在面板内选择一笔或多笔费用，再填总额或逐行分配。全部报销的费用不可选；新增选择默认剩余额度，保留其他行已填金额；取消不保存。
+- 录入、报销分配及详情共用右侧模态面板；长内容可滚动，标题和底部操作可见。
 
-本记录从阶段 0 原型代码提取，尚不代表完整桌面产品的视觉验收。系统中文字体是用户明确要求，保留为工具界面字体，不建立装饰性展示字体或新品牌。
+## 视觉约束
 
-来源：`prototype/src/style.css`、`prototype/src/main.tsx`、`prototype/src/ExpenseScreenshot.tsx` 和 `prototype/src/ocr.ts`；产品边界见 `PRODUCT.md`，历史方向与新反馈见 `docs/PROTOTYPE_DIRECTION.md`，操作边界见 `docs/OCR_REVIEW_UI.md`。此处记录实际代码，不扩展阶段范围。
+暖白工作区、接近白色的雾紫画布、深紫正文；紫色主要用于主按钮、选中态、焦点和小面积提示。没有大块高饱和背景。浅绿、暖橙和浅蓝仅辅助分类图标。
 
-**Key Characteristics:**
-- 列表优先，金额右对齐并使用等宽数字。
-- 右侧面板承载录入、详情和分配，减少页面跳转。
-- 紧凑表格配合可见焦点与文字状态。
+正文使用本机系统字体：`-apple-system, BlinkMacSystemFont, Segoe UI, Microsoft YaHei, PingFang SC, sans-serif`。没有远程字体、图标包、脚本或统计 SDK；图标是源码中的简单 SVG。
 
-## Colors
+主标题 29px，区块标题 20px，正文 14px，列表金额和主要字段 13–14px，辅助说明 11–13px；金额使用 tabular-nums。容器圆角 17px，按钮／输入约 10–11px，面板计算提示 12px。正常文字以深色为主，状态同时有文字，不靠颜色传达。
 
-浅灰绿色底色、白色工作区和克制的深绿主操作组成工具界面。
+## 交互与响应式
 
-### Primary
-- `accent` 用于主要按钮、选中控件和文字链接；`accent-hover` 为主按钮悬停。
-- `nav-active` 与 `nav-text` 是当前导航的浅底与深色文字。
+- 当前导航具有 `aria-current`；金额、搜索、日期、选择框和操作按钮具有可访问名称。
+- 新增费用聚焦金额；图片区保留可键盘聚焦的原生文件选择。对话框限制背景交互，支持 Tab、Escape、取消和返回。
+- 保存锁、幂等请求、OCR 期间禁用编辑、错误提示和撤销确认保持原有业务行为。
+- 1250px 以下压缩侧栏与卡片；1000px 以下待处理区移至列表下；700px 以下侧栏改为顶部横向导航。
+- 窄窗口的表格只在自身容器横向滚动，不撑宽页面；报销分配表同样保留横向比较。
+- 仅在未要求减少动态效果时使用 180ms 面板进入动画。
 
-### Neutral
-- `background` 承载整体画布，`surface` 承载表格和面板，`soft` 承载金额计算提示。
-- `text` 是正文，`muted` 是次要说明，`line` 划分区域。
-- `danger` 标识负余额；部分报销与完成状态分别使用 `partial-*` 和 `done-*`。
+## 实现与限制
 
-**The Text State Rule.** 状态以文字表达，颜色仅帮助区分。
+来源：`prototype/src/main.tsx`、`prototype/src/style.css`、`prototype/index.html`；费用截图组件、模型、持久化和 OCR 服务复用现有实现。没有新增依赖；新预支元数据可选记录附件编号，未改 SQL 表结构或旧账本。
 
-## Typography
+总览“总费用支出”使用完整费用集合；接待／办公页费用卡按对应类别的全部时间累计，不受月份、关键词或分页影响；列表筛选仍单独有效。卡内类别拆分、可用资金说明及待报销条数已按新红框移除，负余额的本人垫付保留。所有卡片、待处理计数、列表与分配数据从当前账本派生，概念图示例数未写入业务代码。预支支持新增、查看、编辑和误填删除，可选到账截图。空账本从零开始，记录支出后允许负余额。开票提醒在费用详情显示，与统计和筛选独立。
 
-所有层级共享前述系统字体栈；Windows 与 Mac 的具体字形不同，尚未据此宣称 Windows 已验收。没有独立展示字体。
+Mac 浏览器验证不等于 Electron 安装包或 Windows 验收。完整备份／新目录恢复及清空已在新隔离账本授权实现；正式迁移、覆盖恢复及其他新业务仍未实现。
 
-标题使用 `headline`；面板标题使用 `panel-title`；区块标题使用 `section-title`。默认正文为 `body`，表格正文为 `table-body`，说明及表单标签通常为 12px，状态和表头为 11px。汇总金额使用 `summary-amount`；录入金额为 26px，详情金额为 32px。这是实用角色层级，不是等比字阶。段落行高 1.65，帮助文本行高 1.8。
+预支页复用三张全账本卡片与列表；预支页提供“登记预支到账”，右侧面板填写金额、到账日期、选填备注和单张到账截图。记录按新增顺序倒序显示，金额与操作时间分列；旧记录缺失日期不推断。验证见 [ADVANCE_VALIDATION](docs/ADVANCE_VALIDATION.md)。
 
-**The Comparable Amounts Rule.** 金额右对齐并使用 tabular-nums；金额角色不等同于装饰标题。
+2026-10-12 按用户红框移除资金卡的累计预支／登记到账底栏和待报销卡的已报销底栏，卡片随内容收紧并保持等高。预支页的累计及登记入口保留；个人问候“你好，小徐同学”保持。改名仅影响显示，不改变数据路径或应用标识。
 
-## Layout
+最新八项反馈见 [QIANLAI_FEEDBACK_VALIDATION](docs/QIANLAI_FEEDBACK_VALIDATION.md)。实际记录区统一每页 6 条；报销内部可搜索及切换类别，跨页选择和金额独立于当前页。图片入口支持点击、键盘聚焦和拖拽。抽屉正文独立滚动，标题／操作底栏不遮挡记录控件。
 
-桌面是固定宽 208px 的左导航加弹性内容区。内容区最大宽 1700px，内边距为上 35px、左右 34px、下 22px。汇总区为三列，比例 1.15:1:0.8；筛选栏可换行，费用表格保留横向滚动。表格单元格默认纵向 20px、横向 15px；分配表缩为 13px 和 10px。
+报销记录页沿用全账本三卡，主区显示批次列表，提供检索、月份／状态筛选及六条分页。明细面板保留原分配，可往返关联费用；撤销确认滚入可见区且默认聚焦“保留”，已撤销记录不再显示撤销按钮。批次／费用切换聚焦面板标题。实际验证见 [REIMBURSEMENT_RECORDS_VALIDATION](docs/REIMBURSEMENT_RECORDS_VALIDATION.md)。
 
-右侧面板固定在视口右侧，高度 100dvh，普通宽 480px，分配面板宽 840px，最大宽度 100vw；页脚粘在底部。普通面板正文内边距 24px 26px。
+## 误填报销删除
 
-1100px 以下导航缩为 176px，内容内边距 26px 22px，汇总金额缩为 26px。760px 以下导航为 140px、隐藏文字方块标记，汇总改为单列，汇总金额为 24px，页面标题为 22px，双列表单改为单列。此为实际原型适配，不推导手机应用导航规范。
+批次详情新增“删除记录”。确认区显示批次编号、全部分配笔数和金额（包含其他页），说明撤销核销、软件内不可恢复、资金不变；默认聚焦“暂不删除”。确认成功关闭详情，列表及待报销额度更新。没有回收站／恢复入口。见 [删除验证](docs/BATCH_DELETE_VALIDATION.md)。
 
-支付截图上传置于“记一笔费用”的普通 480px 右侧面板内，上传、原图、费用字段上下排列，沿用既有面板断点，不设独立 OCR 双栏布局。上传区底部分隔线与 20px 留白分开后续字段；字段区顶部间距 24px。原图容器最大高度 360px，可独立滚动，默认适应宽度，可切换原尺寸；录入和详情附件共用该预览。图片操作按钮可换行，间距 8px。
+## 备份与数据管理
 
-## Elevation & Depth
-
-工作区和汇总容器均不使用阴影，靠边框和浅底色区分。覆盖式右侧面板使用柔和左侧阴影 `-12px 0 45px #1e37221c`，背景遮罩为 `#1f302e32`。无硬偏移阴影。
-
-**The Flat Workspace Rule.** 工作区依靠底色和边框分层，阴影仅用于覆盖主界面的右侧面板。
-
-## Shapes
-
-容器、按钮、表单和状态使用 frontmatter 中的轻度圆角层级；右侧面板保持直边。边框大多为 1px。复选框为 16px 正方形，沿用平台控件和主色。不要把一处品牌文字方块扩展为新的图标系统。
-
-## Components
-
-### Buttons
-
-主按钮使用深绿底与白字；次按钮白底，边框 `#ced8d2`，悬停底色 `#f0f5f2`。按钮最小高度 38px，禁用态浅灰绿色，鼠标指针表示不可操作。文字链接无边框。所有交互焦点为 3px 实线 `#89b5a5`，偏移 2px。
-
-### Chips
-
-紧凑的报销状态标签使用文字加底色，仅展示派生状态；未报销、部分报销和已报销分别使用中性、暖黄及浅绿色。标签不是切换按钮。
-
-### Cards / Containers
-
-白色、细边框、轻圆角的汇总和工作区为主要容器。计算提示采用浅灰绿色底与 18px 内边距。无需给每行费用套独立卡片。
-
-### Inputs / Fields
-
-白底、细边框 `#c6d1ca`、最小高度 38px，沿用统一焦点样式。金额字段使用数字键盘提示和等宽数字；错误以可读文字和浅红底表达。标签与输入间距 9px，字段底部间距 22px。
-
-### Navigation
-
-左侧纵向文本按钮，当前栏目浅绿底、深绿字和 650 字重，数量以较小字号显示。后续阶段条目仅显示说明，不伪装成已实现入口。
-
-### Right-side panel
-
-使用原生模态 dialog 与关闭按钮，保持标题、正文、底部操作的层次。面板开启动画仅在用户未要求减少动态时使用：180ms ease-out，从右侧偏移 20px、透明度 0.7 到原位及不透明。静态容器不附加动画。
-
-### Expense screenshot and attachment
-
-截图上传复用现有录入面板，费用字段依次为实际支出金额、日期和商户／采购摘要，沿用统一输入样式。能够确定的值自动填写，不确定值留空，允许手动补充或修正；上传新图先清空旧识别字段。识别说明使用既有 12px 帮助文本，不新增逐字段来源标签。识别期间禁用费用字段与保存，显示文字进度和“停止识别，手动填写”按钮，不显示虚构百分比；失败时保留原图供手工填写。
-
-余额、退款金额和原始识别文字放在“查看识别参考信息”折叠区，余额与退款不填入支出，也不自动冲减支出。原始文字以 12px 等宽字体、1.6 行高显示，自动换行，最高 180px 后滚动。
-
-底部“确认并保存费用”是唯一提交入口；成功提示费用已存入本地试用账本，并在有截图时说明附件已保留。上传与识别本身不入账，取消不保存。已保存截图在费用详情中以“支付截图附件”标题和相同预览控件呈现，带读取状态、失败提示与放大按钮。本轮属于阶段 0 小范围试用保存，不代表阶段 1 或生产账本验收。
-
-本轮视觉记录对应 `evidence/stage0/expense-ocr-2026-10-12/` 的录入、窄窗口、附件和列表截图；核对了 `entry-top-1024.png` 与 `attachment-desktop.png`。这些前端证据不证明识别泛化准确率或 Windows 桌面验收。
-
-## Do's and Don'ts
-
-### Do:
-- Do 使用已确认的系统中文字体和本地资源。
-- Do 保持金额右对齐、文字状态及可见键盘焦点。
-- Do 在窄窗口保持表格横向滚动和面板视口宽度约束。
-
-### Don't:
-- Don't 以手动状态标签替代真实报销分配。
-- Don't 为该工具增加装饰性大标题、远程字体或无关图库素材。
-- Don't 把原型截图记录当作 Windows 字体、缩放或桌面验收。
-
-未固化为规范：当前原型用文字 `i` 与全角加号模拟图标，以及导航上方的小型分组引导文字；这些不作为未来图标或装饰性眉题规则。系统字体是用户明确指定的工具文字策略，不提升为装饰展示字体。本次仅记录，不修复界面。
+备份页不展示资金卡，分为完整备份和清空危险区；使用既有雾紫白主题及柔和红色危险边框。明确当前账本范围、外部文件保留及不可撤销，先备份入口与准确文字确认并列。未完成清理显示锁定说明和原请求续办，不把空数据当成成功；初始读取失败时隐藏金额卡。三窗口布局及故障重开实测见 [LEDGER_RESET_VALIDATION](docs/LEDGER_RESET_VALIDATION.md)。
