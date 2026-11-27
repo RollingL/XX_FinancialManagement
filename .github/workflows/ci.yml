@@ -38,3 +38,33 @@ jobs:
         run: npm run build
       - name: Run tests
         run: npm test
+
+  desktop:
+    # Starts the real desktop program on a virtual display and uses it like a person
+    # would, with temporary folders and synthetic data (tests/desktop.e2e.cjs).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies (with the Electron program)
+        run: npm ci
+      - name: Use the desktop program
+        run: xvfb-run -a npm run test:desktop
+        env:
+          QIANLAI_E2E_SHOTS: ${{ runner.temp }}/desktop-screenshots
+      - name: Keep screenshots when it fails
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-screenshots
+          path: ${{ runner.temp }}/desktop-screenshots
+          retention-days: 7
+          if-no-files-found: ignore
