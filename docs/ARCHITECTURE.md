@@ -15,13 +15,15 @@ tests/        自动测试和合成测试素材（tests/fixtures/）
 
 ```
 ┌──────────────────────── 界面（src/renderer/） ────────────────────────┐
-│ main.tsx 主界面 · ReimbursementRecords / BackupPage / Screenshot 等组件 │
-│ model.ts 金额计算                                                       │
+│ main.tsx 主界面：页面切换、表单状态、保存流程                           │
+│ Sidebar / ExpenseList / ReimburseForm / BackupPage 等：各块界面         │
+│ model.ts 金额计算 · ledger.ts 发送请求、出错时整理提示                  │
 └───────────────┬───────────────────────────────────┬───────────────────┘
                 │ 桌面版：window.localLedger         │ 浏览器开发：fetch /api/ledger
                 ▼ （preload.cjs → IPC）              ▼ （vite.config.ts 里的本机中间件）
 ┌──────────────────── 主进程 / 账本后端（src/main/） ────────────────────┐
 │ main.cjs            Electron 入口：找文件夹、窗口、IPC、安全限制、退出  │
+│ app-menu.cjs        界面语言（中文）和菜单（Windows 没有菜单）          │
 │ app-paths.cjs       决定“钱来文件夹”在哪里                              │
 │ ledger-service.cjs  程序用的账本：排队执行请求、自动备份、恢复、清空    │
 │ ledger.cjs          记账核心（唯一写入口），所有业务校验在这里          │
@@ -35,6 +37,7 @@ tests/        自动测试和合成测试素材（tests/fixtures/）
 - 浏览器开发模式下，同样的请求走 `POST /api/ledger`，由 `vite.config.ts` 挂载的中间件处理，只接受 `127.0.0.1:5173` 页面带特定请求头的请求。
 - 截图只作为凭证保存，程序不读取图片里的文字（2026-11-27 移除了 OCR 识别）。
 - 每次写操作都返回**整份最新账本**，界面直接用它刷新。
+- 界面固定用中文（`app-menu.cjs` 设置 `zh-CN`），日期框、文件选择框都显示中文。Windows 上没有菜单栏，所以用户碰不到“重新加载”“开发者工具”；Mac 上只有中文的基本菜单（退出、复制粘贴、窗口）。
 
 ## 2. 钱来文件夹：数据和程序放在一起
 
@@ -56,6 +59,8 @@ tests/        自动测试和合成测试素材（tests/fixtures/）
   运行记录/              Electron 的缓存、日志（logs/startup.log）、崩溃报告；不含账目
   START-TEST.cmd 等      诊断工具（见 WINDOWS_OFFLINE_TRIAL）
 ```
+
+“备份到 U 盘”写在用户选的位置下面的 `钱来备份/` 里，结构和 `备份/` 一样（每次一个新文件夹，加上共用的 `截图库/`），所以能直接用“从其他文件夹恢复或导入”恢复。不能选钱来文件夹里面的位置。
 
 “钱来文件夹”在哪里由 `app-paths.cjs` 决定：
 
@@ -120,6 +125,7 @@ tests/        自动测试和合成测试素材（tests/fixtures/）
 
 - **防止两个程序同时写**：打开账本时用 SQLite 的独占模式（`locking_mode=EXCLUSIVE`）拿到操作系统的文件锁，直到关闭才放开。程序崩溃或被强制结束时，操作系统会自动释放这个锁，所以**不会出现“锁残留导致打不开”**。另一个钱来打开同一账本会看到“正被另一个钱来窗口使用”。
 - **代际（generation）**：每个账本有一个代际编号，清空和恢复时更换。界面读账本时记住它，之后每次写操作都带上；对不上就拒绝，防止旧窗口把数据写进换过的账本。
+- **保存被拒绝时**（`src/renderer/ledger.ts`）：桌面版的出错信息会去掉 Electron 加的英文前缀，只显示中文原因。如果原因是“数据已经变化、请刷新”，界面会自动重新读一次最新账本并刷新画面（`onLedgerReloaded`），提示改为“已重新读取最新账本，请核对后再保存”，用户不需要自己刷新。
 - **备份**（`ledger-backup.cjs` 的 `createBackup`）：用 `VACUUM INTO` 写一份一致的数据库副本，检查副本，再把截图放进 `截图库`；先写在隐藏的 `.tmp-` 文件夹里，完整后才改名为正式名字，所以中断的备份不会被当成完整备份。写备份时截图已经找不到或损坏的，会记在 `backup.json` 和 `说明.txt` 里。
 - **自动备份**：每天打开程序或第一次保存时做一份（空账本不做），只保留最新 30 份**自动**备份；手动备份和安全备份（恢复前、清空前、升级前）不自动删除。`截图库` 里没有任何备份再用的截图会被删除；如果 `备份/` 里有读不懂的文件夹，就跳过这一步，宁可多留。
 - **恢复和导入**（同一个流程）：
@@ -131,7 +137,7 @@ tests/        自动测试和合成测试素材（tests/fixtures/）
 - **早期测试版数据**（`trial-data`、`trial.sqlite`、`stage0-trial`）不再读取；选中它们会提示“这是早期测试版的数据，新版不能读取”。
 - **退出**：关闭窗口时先拒绝新请求、等已受理的保存完成、关闭数据库，最后才退出。
 - **Windows 启动器**：`Qianlai.exe` 把整个 Electron 进程树放进一个 Windows Job，退出时只清理自己启动的子进程。
-- **桌面安全**：开启 `sandbox`、`contextIsolation`，关闭 `nodeIntegration`；拒绝打开新窗口、跳转到其他页面和所有权限请求；页面有内容安全策略（`src/renderer/index.html`）。只有主进程弹出的“选择文件夹”对话框能指定 `备份/` 以外的文件夹；界面只能请求打开 `备份` 或钱来文件夹本身。
+- **桌面安全**：开启 `sandbox`、`contextIsolation`，关闭 `nodeIntegration`；拒绝打开新窗口、跳转到其他页面和所有权限请求；页面有内容安全策略（`src/renderer/index.html`）。只有主进程弹出的“选择文件夹”对话框能指定 `备份/` 以外的文件夹（从其他文件夹恢复或导入、备份到 U 盘）；界面不能自己传文件夹路径，只能请求打开 `备份` 或钱来文件夹本身。
 
 ## 6. 改什么，先看哪里
 
@@ -140,13 +146,16 @@ tests/        自动测试和合成测试素材（tests/fixtures/）
 | 余额、报销分配计算 | `src/renderer/model.ts`、`reimbursement-draft.ts`、`expense-summary.ts` | `model.test.ts`、`batch-save-retry.test.ts`、`batch-delete-ui-model.test.ts`、`expense-summary.test.ts` |
 | 费用 / 预支 / 报销的保存规则 | `src/main/ledger.cjs` | `ledger-core.test.cjs`（核心规则）、`record-crud.test.cjs`、`advance-ledger.test.cjs`、`batch-cancellation.test.cjs`、`batch-delete.test.cjs`、`expense-correction.test.cjs`、`invoice-reminder.test.cjs` |
 | 数据表、版本号、升级、一致性检查、文件锁 | `src/main/ledger-schema.cjs` | `ledger-schema.test.cjs` |
-| 备份、恢复、导入、清空、自动备份 | `src/main/ledger-service.cjs`、`ledger-backup.cjs`、`src/renderer/BackupPage.tsx` | `ledger-service.test.cjs`、`ledger-backup.test.cjs`、`ledger-generation.test.ts` |
-| 主界面、页面交互 | `src/renderer/main.tsx` 及同目录组件 | `ui-actions.test.ts`、`records.test.ts`、`batch-records.test.ts`、`expense-correction-ui.test.ts`、`advance-editor.test.ts` |
+| 备份、恢复、导入、清空、自动备份、备份到 U 盘 | `src/main/ledger-service.cjs`、`ledger-backup.cjs`、`src/renderer/BackupPage.tsx`、`BackupStatus.tsx`、`backup-status.ts` | `ledger-service.test.cjs`、`ledger-backup.test.cjs`、`ledger-generation.test.ts`、`backup-status.test.ts`、`desktop.e2e.cjs` |
+| 主界面、页面交互 | `src/renderer/main.tsx`（状态和保存流程）；各块界面在同目录：`Sidebar`、`SummaryCards`、`ExpenseList`、`AdvanceList`、`ExpenseForm`、`AdvanceForm`、`ReimburseForm`、`ExpenseDetail` 等 | `ui-actions.test.ts`、`records.test.ts`、`batch-records.test.ts`、`expense-correction-ui.test.ts`、`advance-editor.test.ts`、`desktop.e2e.cjs` |
+| 保存失败的提示、自动重新读取 | `src/renderer/ledger.ts` | `ledger-generation.test.ts` |
 | 截图附件 | `src/renderer/Screenshot.tsx`、`image-file.ts`、`src/main/image-check.cjs` | `screenshot.test.ts`、`image-file.test.ts`、`image-check.test.cjs`、`advance-attachment.test.cjs`；合成图片在 `tests/fixtures/`，测试里生成图片用 `tests/synthetic-image.cjs` |
 | CSV 导出 | `expense-export.ts`、`expense-download.ts` | `expense-export.test.ts`、`expense-download.test.ts` |
 | 钱来文件夹的位置 | `src/main/app-paths.cjs` | `app-paths.test.cjs` |
-| Electron 启动、IPC、退出、打不开时改名 | `src/main/main.cjs`、`preload.cjs` | `electron-main.test.cjs` |
+| Electron 启动、IPC、退出、打不开时改名、菜单和界面语言 | `src/main/main.cjs`、`preload.cjs`、`app-menu.cjs` | `electron-main.test.cjs`、`desktop.e2e.cjs` |
 | 浏览器开发接口 | `vite.config.ts`、`ledger.cjs` 的 `ledgerMiddleware` | `ledger-http.test.cjs` |
 | Windows 便携包 | `scripts/windows/`（`launcher.cpp`、`prepare-portable.cjs`、`package-check.cjs`、`build-portable.ps1`）、`.github/workflows/windows-portable.yml` | `windows-*.test.cjs`、`windows-gui-smoke.cjs`（只在 Windows 构建里跑，包括“复制整个文件夹后还能打开”） |
+
+`tests/desktop.e2e.cjs` 是**真实桌面版**的界面测试：用 Playwright 启动 Electron，在临时文件夹里像用户一样点界面（记账、报销、开票、备份、U 盘备份、恢复、导入、清空、搬文件夹），每个 PR 都会在 Linux 上自动跑。改了界面文字或按钮名字时，要同时改这里。
 
 测试共用的临时账本工具在 `tests/ledger-fixture.cjs`：`ledgerFixture` 建一个临时账本（因为账本被独占锁住，测试通过 `f.db` 用账本自己的连接查看和修改数据），`seedVariedLedger` 填入各种类型的合成记录。

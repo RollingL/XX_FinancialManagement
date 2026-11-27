@@ -19,17 +19,25 @@ npm run check           # 一次跑完下面三项（和 PR 自动检查一样�
 npm run format:check    # 检查代码格式（Prettier）
 npm run build           # TypeScript 类型检查 + 打包网页到 dist/
 npm test                # 全部测试（tests/*.test.ts 和 tests/*.test.cjs）
+npm run test:desktop    # 构建后启动真实桌面版，像用户一样点界面（tests/desktop.e2e.cjs）
 
 npm run format          # 自动整理代码格式
 npm run test:coverage   # 跑测试并列出哪些代码还没被测试覆盖
 node --test tests/model.test.ts   # 只跑某一个测试文件
 ```
 
-预期结果（2026-11-27 重做数据层后，Linux + Node 22）：格式检查通过；构建通过；测试 231 项通过、5 项跳过（Windows 专用）。
+预期结果（2026-11-27 界面改进后，Linux + Node 22）：格式检查通过；构建通过；测试 238 项通过、5 项跳过（Windows 专用）；`xvfb-run -a npm run test:desktop` 2 项通过。
+
+`test:desktop` 需要显示器：Mac 上直接运行，Linux 云端要在前面加 `xvfb-run -a`（虚拟显示器）。设置环境变量 `QIANLAI_E2E_SHOTS=<仓库外的文件夹>` 会把过程截图存下来，方便肉眼检查。
 
 ### PR 自动检查
 
-每个 PR 和每次合并到 `main`，GitHub 都会自动跑 `.github/workflows/ci.yml`：在 Ubuntu 上 `npm ci` → 格式检查 → 构建 → 全部测试。PR 页面底部会显示通过（绿勾）或失败（红叉）。失败时点进去看是哪一步，修好再推送即可。这项检查只在 Linux 上跑，**不代表** Windows 也通过。
+每个 PR 和每次合并到 `main`，GitHub 都会自动跑 `.github/workflows/ci.yml` 里的两项检查：
+
+- **check**：在 Ubuntu 上 `npm ci` → 格式检查 → 构建 → 全部测试。
+- **desktop**：在 Ubuntu 上用虚拟显示器启动真实桌面版，跑 `tests/desktop.e2e.cjs`（记账、报销、开票、备份、U 盘备份、恢复、导入、清空、搬文件夹）。失败时会把过程截图作为附件上传（保留 7 天），在该次运行页面下载。
+
+PR 页面底部会显示通过（绿勾）或失败（红叉）。失败时点进去看是哪一步，修好再推送即可。这两项检查只在 Linux 上跑，**不代表** Windows 也通过。
 
 ## 3. 本地运行
 
@@ -78,16 +86,16 @@ Windows 包**只能在 GitHub Actions 上构建**（`scripts/windows/build-porta
 
 ## 5. 界面检查
 
-改了界面后，用临时数据目录启动，再用浏览器自动化工具实际点一遍。Claude 的云端环境自带 Playwright（`require('playwright')`），有两种方式：
+改了界面后，先跑 `npm run test:desktop`（见第 2 节），再用临时数据目录启动，用浏览器自动化工具实际点一遍改动的地方。项目自带 `playwright-core`（开发依赖），Claude 的云端环境也自带 Playwright，有两种方式：
 
 - **浏览器开发模式**：先按第 3 节启动 `npm run dev`，再用 `chromium.launch()` 打开 http://127.0.0.1:5173/ 。
 - **真实桌面版**：在 Linux 云端也能跑 Electron（需要虚拟显示器 `xvfb-run`），这样检查的是和用户一样的程序：
 
 ```js
-// xvfb-run -a node check.cjs
-const { _electron } = require('playwright');
+// xvfb-run -a node check.cjs（在仓库根目录运行）
+const { _electron } = require('playwright-core');
 const app = await _electron.launch({
-  executablePath: 'node_modules/electron/dist/electron',
+  executablePath: require('electron'),
   args: ['.', '--no-sandbox'],
   env: { ...process.env, QIANLAI_HOME: '<临时文件夹的绝对路径>' },
 });
@@ -97,7 +105,7 @@ await page.screenshot({ path: 'overview.png' });
 
 `node_modules/electron/dist` 不存在时，先运行 `node node_modules/electron/install.js` 下载 Electron。
 
-桌面版里“从其他文件夹恢复或导入”会弹出系统的选择文件夹对话框，自动化时可以在主进程里替换它：`await app.evaluate(({ dialog }, folder) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] }); }, '<另一个临时钱来文件夹>')`。
+桌面版里“从其他文件夹恢复或导入”和“备份到 U 盘…”会弹出系统的选择文件夹对话框，自动化时可以在主进程里替换它：`await app.evaluate(({ dialog }, folder) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] }); }, '<另一个临时钱来文件夹>')`。
 
 建议至少检查三种窗口大小：1400×920、1024×768、800×600。截图和临时脚本放在 Git 忽略的位置（例如系统临时目录或 `evidence/`），**不要提交**。
 

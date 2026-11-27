@@ -29,7 +29,8 @@
 
 ```sh
 npm ci                 # 安装依赖（按锁文件）
-npm run check          # 格式检查 + 构建 + 全部测试（PR 自动检查跑的就是这三项）
+npm run check          # 格式检查 + 构建 + 全部测试（PR 自动检查跑这三项）
+npm run test:desktop   # 真实桌面版界面测试（Linux 用 xvfb-run -a；PR 自动检查也跑）
 npm run format         # 自动整理代码格式
 npm test               # 只跑测试
 ```
