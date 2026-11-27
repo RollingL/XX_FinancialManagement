@@ -1,47 +1,16 @@
+// Correcting an expense: the same number, screenshot and invoice reminder stay, the
+// before/after copy is kept, and the amount never drops below what was reimbursed.
 const test = require('node:test'),
   assert = require('node:assert/strict');
-const fs = require('node:fs'),
-  os = require('node:os'),
-  path = require('node:path'),
-  { randomUUID, createHash } = require('node:crypto');
-const Database = require('better-sqlite3'),
-  { createLedger } = require('../src/main/ledger.cjs');
+const { randomUUID, createHash } = require('node:crypto');
+const { ledgerFixture, read } = require('./ledger-fixture.cjs');
 const png = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGOYVnECAAN+AdcpgjGUAAAAAElFTkSuQmCC',
   'base64',
 );
 async function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-expense-correction-'));
-  let ledger = createLedger(root);
-  const additional = [];
-  t.after(() => {
-    ledger.close();
-    for (const item of additional) item.close();
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  const f = {
-    root,
-    get ledger() {
-      return ledger;
-    },
-    reopen() {
-      ledger.close();
-      ledger = createLedger(root);
-    },
-    another() {
-      const item = createLedger(root);
-      additional.push(item);
-      return item;
-    },
-    db(fn) {
-      const db = new Database(path.join(root, 'trial.sqlite'));
-      try {
-        return fn(db);
-      } finally {
-        db.close();
-      }
-    },
-  };
+  const f = ledgerFixture(t, 'qianlai-expense-correction-'),
+    ledger = f.ledger;
   for (const [amount, note] of [
     [10000, '合成预支'],
     [25, '合成补充款'],
@@ -70,16 +39,7 @@ async function fixture(t) {
     });
   await ledger.command({ kind: 'cancel', requestId: randomUUID(), id: 2 });
   await ledger.command({ kind: 'delete-batch', requestId: randomUUID(), id: 3 });
-  const state = await read(f);
-  state.expenses[0].legacyDetails = { text: '合成旧字段', list: [1, 2] };
-  replaceState(f, state);
   return f;
-}
-const read = (f) => f.ledger.command({ kind: 'read' });
-function replaceState(f, state) {
-  f.db((db) =>
-    db.prepare('UPDATE trial_state SET json=? WHERE id=1').run(JSON.stringify(state, null, 2)),
-  );
 }
 function request(state, changes = {}, id = 1) {
   const expense = state.expenses.find((e) => e.id === id);
@@ -115,23 +75,18 @@ const cash = (state) => ({
   balance:
     state.advances.reduce((a, b) => a + b, 0) - state.expenses.reduce((a, e) => a + e.amount, 0),
 });
+// The whole stored ledger, with the request log and screenshot table also listed alone.
 async function snapshot(f) {
+  const rows = f.rows();
   return {
     state: await read(f),
-    ...f.db((db) => ({
-      raw: db.prepare('SELECT json FROM trial_state').get().json,
-      operations: db.prepare('SELECT * FROM operations ORDER BY id').all(),
-      attachments: db.prepare('SELECT * FROM attachments ORDER BY id').all(),
+    rows,
+    operations: f.operations(),
+    attachments: rows.attachments,
+    files: f.files().map(([file, base64]) => ({
+      file,
+      sha256: createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex'),
     })),
-    files: fs
-      .readdirSync(path.join(f.root, 'attachments'))
-      .sort()
-      .map((file) => ({
-        file,
-        sha256: createHash('sha256')
-          .update(fs.readFileSync(path.join(f.root, 'attachments', file)))
-          .digest('hex'),
-      })),
   };
 }
 function assertEvent(f, event, input, before, after, revision) {
@@ -145,9 +100,9 @@ function assertEvent(f, event, input, before, after, revision) {
     after,
   });
   assert.ok(Number.isFinite(Date.parse(event.at)));
-  const operation = f.db((db) =>
-    db.prepare('SELECT * FROM operations WHERE id=?').get(input.requestId),
-  );
+  const operation = f.db
+    .prepare('SELECT * FROM operations WHERE request_id = ?')
+    .get(input.requestId);
   assert.equal(operation.kind, 'correct-expense');
   assert.equal(operation.created_at, event.at);
 }
@@ -196,7 +151,7 @@ test('integer-cent correction updates the original expense once, preserves all u
   assert.deepEqual(await snapshot(f), saved);
 });
 
-test('metadata correction changes no fund amount and preserves ID, invoice, attachment and unknown legacy fields', async (t) => {
+test('metadata correction changes no fund amount and preserves ID, invoice reminder and attachment', async (t) => {
   const f = await fixture(t),
     before = await snapshot(f),
     input = request(before.state, {
@@ -228,7 +183,7 @@ test('metadata correction changes no fund amount and preserves ID, invoice, atta
   assertEvent(f, after.expenseEvents[0], input, before.state.expenses[0], after.expenses[0], 1);
 });
 
-test('effective allocations bound correction amounts; inactive history and invoice amounts do not lock editing', async (t) => {
+test('effective allocations bound correction amounts; cancelled or deleted batches and the invoice reminder do not lock editing', async (t) => {
   const f = await fixture(t),
     state = await read(f);
   await assert.rejects(f.ledger.command(request(state, { amount: 4999 }, 2)), /当前有效报销金额/);
@@ -237,11 +192,17 @@ test('effective allocations bound correction amounts; inactive history and invoi
   assert.deepEqual(after.batchEvents, state.batchEvents);
   after = await f.ledger.command(request(after, { merchant: '合成改摘要' }, 2));
   assert.equal(after.expenses[1].merchant, '合成改摘要');
-  after.expenses[0].invoice = 999999;
-  replaceState(f, after);
+  after = await f.ledger.command({
+    kind: 'set-invoice-issued',
+    requestId: randomUUID(),
+    id: 1,
+    invoiceIssued: true,
+    expected: structuredClone(after.expenses[0]),
+    expectedRevision: 0,
+  });
   const corrected = await f.ledger.command(request(after, { amount: 1 }));
   assert.equal(corrected.expenses[0].amount, 1);
-  assert.equal(corrected.expenses[0].invoice, 999999);
+  assert.equal(corrected.expenses[0].invoiceIssued, true);
 });
 
 test('invalid amounts, dates, fields, IDs and revision inputs reject without state, audit or operation changes', async (t) => {
@@ -272,7 +233,7 @@ test('invalid amounts, dates, fields, IDs and revision inputs reject without sta
     })),
     { ...base, image: { base64: png.toString('base64') } },
     { ...base, attachmentId: 'replacement' },
-    { ...base, expected: { ...base.expected, legacyDetails: { text: 'different' } } },
+    { ...base, expected: { ...base.expected, merchant: '合成别的摘要' } },
     { ...base, expected: null },
   ];
   for (const input of invalid) {
@@ -316,8 +277,9 @@ test('invalid amounts, dates, fields, IDs and revision inputs reject without sta
 test('aggregate cents exclude the old amount, accept the last safe cent and reject overflow atomically', async (t) => {
   const f = await fixture(t),
     initial = await read(f);
-  initial.expenses[1].amount = Number.MAX_SAFE_INTEGER - initial.expenses[0].amount;
-  replaceState(f, initial);
+  f.sql(
+    `UPDATE expenses SET amount = ${Number.MAX_SAFE_INTEGER - initial.expenses[0].amount} WHERE id = 2`,
+  );
   const before = await snapshot(f);
   await assert.rejects(
     f.ledger.command(request(before.state, { amount: 30001 })),
@@ -361,13 +323,12 @@ test('revision rejects ABA even when the complete expense value has returned to 
   assert.deepEqual(await snapshot(f), before);
 });
 
-test('two ledger connections using the same old snapshot allow exactly one correction and refuse the stale writer', async (t) => {
+test('two windows using the same old snapshot allow exactly one correction and refuse the stale writer', async (t) => {
   const f = await fixture(t),
     old = await read(f),
-    second = f.another(),
     a = request(old, { amount: 100 }),
     b = request(old, { amount: 200 }),
-    results = await Promise.allSettled([f.ledger.command(a), second.command(b)]);
+    results = await Promise.allSettled([f.ledger.command(a), f.ledger.command(b)]);
   assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
   assert.match(results.find((result) => result.status === 'rejected').reason.message, /费用已变化/);
   const saved = await snapshot(f);
@@ -376,10 +337,10 @@ test('two ledger connections using the same old snapshot allow exactly one corre
   assert.equal(saved.operations.filter((op) => op.kind === 'correct-expense').length, 1);
 });
 
-test('revision counts only the target expense and old ledgers are read without backfilling correction metadata', async (t) => {
+test('revision counts only the target expense', async (t) => {
   const f = await fixture(t),
     before = await snapshot(f);
-  assert.equal(Object.hasOwn(before.state, 'expenseEvents'), false);
+  assert.deepEqual(before.state.expenseEvents, []);
   f.reopen();
   assert.deepEqual(await snapshot(f), before);
   const withThird = await f.ledger.command({
@@ -431,16 +392,14 @@ test('failure inserting the operation rolls back the changed expense and its aud
   const f = await fixture(t),
     before = await snapshot(f),
     input = request(before.state, { amount: 7 });
-  f.db((db) =>
-    db.exec(
-      "CREATE TRIGGER fail_correction BEFORE INSERT ON operations WHEN NEW.kind='correct-expense' BEGIN SELECT RAISE(ABORT,'synthetic correction failure'); END",
-    ),
+  f.sql(
+    "CREATE TRIGGER fail_correction BEFORE INSERT ON operations WHEN NEW.kind='correct-expense' BEGIN SELECT RAISE(ABORT,'synthetic correction failure'); END",
   );
   await assert.rejects(f.ledger.command(input), /synthetic correction failure/);
   assert.deepEqual(await snapshot(f), before);
   f.reopen();
   assert.deepEqual(await snapshot(f), before);
-  f.db((db) => db.exec('DROP TRIGGER fail_correction'));
+  f.sql('DROP TRIGGER fail_correction');
   const result = await f.ledger.command(input),
     saved = await snapshot(f);
   assert.equal(result.expenses[0].amount, 7);
@@ -450,92 +409,4 @@ test('failure inserting the operation rolls back the changed expense and its aud
   assert.deepEqual(saved.files, before.files);
   assert.deepEqual(await f.ledger.command(input), result);
   assert.deepEqual(await snapshot(f), saved);
-});
-
-test('malformed correction history is preserved and rejected instead of being overwritten', async (t) => {
-  const f = await fixture(t);
-  for (const expenseEvents of [null, false, { synthetic: 'invalid' }]) {
-    const current = await read(f);
-    current.expenseEvents = expenseEvents;
-    replaceState(f, current);
-    const before = await snapshot(f),
-      input = { ...request({ ...current, expenseEvents: [] }, { amount: 1 }), expectedRevision: 0 };
-    await assert.rejects(f.ledger.command(input), /费用纠错历史无效/);
-    assert.deepEqual(await snapshot(f), before);
-  }
-});
-
-test('managed reset removes correction history and stale generations or expected values cannot change a reused expense ID', async (t) => {
-  const { createManagedLedger } = require('../src/main/managed-ledger.cjs'),
-    base = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-correction-generation-')),
-    root = path.join(base, 'managed'),
-    ledger = createManagedLedger(root);
-  t.after(async () => {
-    await ledger.close();
-    fs.rmSync(base, { recursive: true, force: true });
-  });
-  const f = {
-      root,
-      ledger,
-      db(fn) {
-        const db = new Database(path.join(root, 'trial.sqlite'));
-        try {
-          return fn(db);
-        } finally {
-          db.close();
-        }
-      },
-    },
-    initial = await read(f),
-    fields = {
-      category: '办公',
-      date: '2026-10-12',
-      merchant: '合成代际费用',
-      amount: 1000,
-      note: '',
-    };
-  const original = await ledger.command({
-      kind: 'expense',
-      requestId: randomUUID(),
-      generation: initial.generation,
-      expense: fields,
-    }),
-    first = request(original, { amount: 1100 }),
-    corrected = await ledger.command({ ...first, generation: original.generation }),
-    stale = request(corrected, { amount: 1300 });
-  assert.equal(corrected.expenseEvents.length, 1);
-  await ledger.command({
-    kind: 'reset-ledger',
-    requestId: randomUUID(),
-    generation: corrected.generation,
-    confirmation: '清空当前账本',
-  });
-  const empty = await read(f);
-  assert.notEqual(empty.generation, corrected.generation);
-  assert.equal(Object.hasOwn(empty, 'expenseEvents'), false);
-  assert.deepEqual(empty.expenses, []);
-  assert.deepEqual((await snapshot(f)).operations, []);
-  const fresh = await ledger.command({
-    kind: 'expense',
-    requestId: randomUUID(),
-    generation: empty.generation,
-    expense: { ...fields, amount: 1100 },
-  });
-  assert.deepEqual(fresh.expenses[0], stale.expected);
-  const before = await snapshot(f);
-  for (const input of [
-    { ...first, generation: original.generation },
-    { ...stale, generation: original.generation },
-  ]) {
-    await assert.rejects(ledger.command(input), /代际已变化/);
-    assert.deepEqual(await snapshot(f), before);
-  }
-  await assert.rejects(ledger.command({ ...stale, generation: fresh.generation }), /费用已变化/);
-  assert.deepEqual(await snapshot(f), before);
-  await assert.rejects(
-    ledger.command({ ...first, requestId: randomUUID(), generation: fresh.generation }),
-    /费用已变化/,
-  );
-  assert.deepEqual(await snapshot(f), before);
-  assert.equal(Object.hasOwn(await read(f), 'expenseEvents'), false);
 });

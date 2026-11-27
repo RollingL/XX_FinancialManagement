@@ -1,88 +1,64 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+// Electron entry: finds the home folder, opens the ledger, creates the window and
+// passes the window's requests to the ledger. Shuts down only after saves finish.
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 const { spawn } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const isProbe = process.argv.includes('--probe');
-let portable;
+const projectRoot = path.join(__dirname, '..', '..');
+
+function ensureDirectory(folder) {
+  if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
+  const stat = fs.lstatSync(folder);
+  if (!stat.isDirectory() || stat.isSymbolicLink())
+    throw Error(`“${path.basename(folder)}”必须是普通文件夹，请保留现有文件`);
+  return folder;
+}
+// Electron's own files (cache, logs, crash reports) stay inside the home folder too,
+// and the one-window-only lock is tied to that folder.
+function useRuntimeFolder(root) {
+  ensureDirectory(root);
+  app.setPath('userData', root);
+  app.setPath('sessionData', root);
+  for (const name of ['logs', 'crashDumps'])
+    app.setPath(name, ensureDirectory(path.join(root, name)));
+}
+
+let layout = null,
+  portable = null,
+  probeDir = null;
 try {
-  portable = require('./windows-runtime.cjs').configureWindowsPortable({
-    packaged: app.isPackaged,
-    platform: process.platform,
-    resourcesPath: process.resourcesPath,
-    env: process.env,
-    probe: isProbe,
-  });
+  if (isProbe) {
+    probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-probe-'));
+    app.setPath('userData', probeDir);
+    app.setPath('sessionData', probeDir);
+  } else {
+    const resolved = require('./app-paths.cjs').resolveHome({
+      packaged: app.isPackaged,
+      platform: process.platform,
+      resourcesPath: process.resourcesPath,
+      env: process.env,
+      projectRoot,
+    });
+    layout = require('./ledger-schema.cjs').homeLayout(resolved.home);
+    if (resolved.portable) portable = { launcher: path.join(resolved.home, 'Qianlai.exe') };
+    ensureDirectory(layout.home);
+    useRuntimeFolder(layout.runtimeDir);
+  }
 } catch (error) {
+  console.error(`启动配置无效：${error.message}`);
   dialog.showErrorBox('无法启动钱来', error.message);
   app.exit(1);
   throw error;
 }
-// Only the newly marked Mac test bundle defaults to its own sibling data directory.
-function configureMacTrial() {
-  if (
-    !app.isPackaged ||
-    process.platform !== 'darwin' ||
-    process.env.XX_FINANCE_USER_DATA_DIR !== undefined
-  )
-    return;
-  const file = path.join(process.resourcesPath, 'mac-trial.json');
-  if (!fs.existsSync(file)) return;
-  const stat = fs.lstatSync(file);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4096) throw Error('Mac 试用标识无效');
-  const marker = JSON.parse(fs.readFileSync(file, 'utf8'));
-  if (
-    Object.keys(marker).sort().join(',') !== 'buildId,format' ||
-    marker.format !== 1 ||
-    typeof marker.buildId !== 'string' ||
-    !/^[a-f0-9-]{36}$/.test(marker.buildId)
-  )
-    throw Error('Mac 试用标识无效');
-  const root = path.resolve(process.resourcesPath, '../../../mac-trial-data'),
-    identity = path.join(root, 'trial-marker.txt');
-  if (fs.existsSync(root)) {
-    const existing = fs.lstatSync(root),
-      tag = fs.lstatSync(identity);
-    if (
-      !existing.isDirectory() ||
-      existing.isSymbolicLink() ||
-      !tag.isFile() ||
-      tag.isSymbolicLink() ||
-      tag.size > 128 ||
-      fs.readFileSync(identity, 'utf8').trim() !== marker.buildId
-    )
-      throw Error('已有目录不属于本 Mac 试用包，停止启动');
-  } else {
-    fs.mkdirSync(root, { mode: 0o700 });
-    fs.writeFileSync(identity, marker.buildId + '\n', { flag: 'wx', mode: 0o600 });
-  }
-  const user = path.join(root, 'user-data'),
-    backups = path.join(root, 'backups');
-  for (const folder of [user, backups]) {
-    if (!fs.existsSync(folder)) fs.mkdirSync(folder, { mode: 0o700 });
-    const stat = fs.lstatSync(folder);
-    if (!stat.isDirectory() || stat.isSymbolicLink()) throw Error('Mac 试用目录无效');
-  }
-  Object.assign(process.env, {
-    XX_FINANCE_MANAGED_TRIAL: '1',
-    XX_FINANCE_USER_DATA_DIR: user,
-    XX_FINANCE_DATA_DIR: path.join(user, 'ledger'),
-    XX_FINANCE_BACKUP_DIR: backups,
-  });
-}
-try {
-  configureMacTrial();
-} catch (error) {
-  console.error('Mac 隔离试用配置无效：' + error.message);
-  app.exit(1);
-  throw error;
-}
-// Startup diagnostics contain stages only, never ledger facts or IPC payloads.
+
+// Startup diagnostics contain stages only, never ledger facts or request contents.
 let diagnosticsPath;
 function startupEvent(stage, details = {}) {
   if (isProbe) return;
-  if (process.env.XX_FINANCE_STARTUP_DIAGNOSTICS !== '1' && !portable) return;
+  if (process.env.QIANLAI_STARTUP_DIAGNOSTICS !== '1' && !portable) return;
   const line =
     '[qianlai-startup] ' +
     JSON.stringify({ time: new Date().toISOString(), pid: process.pid, stage, ...details });
@@ -104,11 +80,13 @@ function startupEvent(stage, details = {}) {
       }
       fs.appendFileSync(diagnosticsPath, line + '\n', { mode: 0o600 });
     } catch {
-      /* A diagnostic failure cannot change ledger ownership. */
+      /* A diagnostic failure never affects the ledger. */
     }
   }
 }
+if (portable) diagnosticsPath = path.join(app.getPath('logs'), 'startup.log');
 startupEvent('main-enter', { platform: process.platform });
+startupEvent('paths-ready');
 app.on('child-process-gone', (_event, details) =>
   startupEvent('child-process-gone', {
     type: details.type,
@@ -117,10 +95,7 @@ app.on('child-process-gone', (_event, details) =>
   }),
 );
 app.on('quit', (_event, exitCode) => startupEvent('quit', { exitCode }));
-const managed = process.env.XX_FINANCE_MANAGED_TRIAL === '1';
-const userData = process.env.XX_FINANCE_USER_DATA_DIR,
-  dataDir = process.env.XX_FINANCE_DATA_DIR,
-  backupDestination = process.env.XX_FINANCE_BACKUP_DIR;
+
 let ledger,
   mainWindow,
   closing = false,
@@ -128,37 +103,6 @@ let ledger,
   disposal,
   fatal = false;
 const pendingLedger = new Set();
-function configurePaths() {
-  if (managed && (!userData || !dataDir || !path.isAbsolute(dataDir)))
-    throw Error('受管账本须显式指定独立 userData 和绝对账本目录');
-  if (backupDestination && !path.isAbsolute(backupDestination))
-    throw Error('备份目录必须为显式绝对路径');
-  if (userData !== undefined) {
-    if (!path.isAbsolute(userData)) throw Error('隔离 userData 必须为绝对路径');
-    const stat = fs.lstatSync(userData);
-    if (!stat.isDirectory() || stat.isSymbolicLink())
-      throw Error('隔离 userData 必须为已存在的普通目录');
-    const root = fs.realpathSync(userData);
-    app.setPath('userData', root);
-    app.setPath('sessionData', root);
-    for (const name of ['logs', 'crashDumps']) {
-      const folder = path.join(root, name);
-      fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
-      const stat = fs.lstatSync(folder);
-      if (!stat.isDirectory() || stat.isSymbolicLink()) throw Error('隔离运行目录无效');
-      app.setPath(name, folder);
-    }
-  }
-}
-try {
-  configurePaths();
-  if (portable) diagnosticsPath = path.join(app.getPath('logs'), 'startup.log');
-  startupEvent('paths-ready');
-} catch (error) {
-  console.error(`原生启动配置无效：${error.message}`);
-  app.exit(1);
-  throw error;
-}
 function dispose() {
   return (disposal ??= (async () => {
     startupEvent('cleanup-start');
@@ -180,26 +124,19 @@ function shutdown() {
       startupEvent('cleanup-failed');
       dialog.showErrorBox(
         '关闭未完成',
-        '关闭过程未完成。已保留账本；重新启动时会检查占用状态与数据完整性。',
+        '关闭过程没有完成，账本已保留。重新打开钱来时会再次检查账本。',
       );
       app.exit(1);
     });
 }
-// The GUI launcher creates the complete process tree inside a private Windows Job.
+
+// The Windows launcher runs the whole process tree inside a private Windows Job.
 let redirected = false;
 if (portable && !process.argv.includes('--qianlai-supervised')) {
   redirected = true;
-  const launcherEnv = { ...process.env };
-  for (const key of [
-    'XX_FINANCE_MANAGED_TRIAL',
-    'XX_FINANCE_USER_DATA_DIR',
-    'XX_FINANCE_DATA_DIR',
-    'XX_FINANCE_BACKUP_DIR',
-  ])
-    delete launcherEnv[key];
   try {
     const launcher = spawn(portable.launcher, [], {
-      env: launcherEnv,
+      env: { ...process.env },
       stdio: 'ignore',
       windowsHide: true,
       detached: true,
@@ -240,12 +177,50 @@ function fatalShutdown(stage) {
   if (!closing)
     dialog.showErrorBox(
       '钱来已停止运行',
-      '应用遇到异常，正在关闭并保留账本。请重新启动；若重复出现，请保留启动日志。',
+      '程序遇到异常，正在关闭，账本已保留。请重新打开；如果反复出现，请保留“运行记录”文件夹。',
     );
   shutdown();
 }
 process.on?.('uncaughtException', () => fatalShutdown('fatal-exception'));
 process.on?.('unhandledRejection', () => fatalShutdown('unhandled-rejection'));
+
+const pad = (n) => String(n).padStart(2, '0');
+function stamp(date = new Date()) {
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_` +
+    `${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`
+  );
+}
+// A damaged or unreadable ledger can be renamed (never deleted) so the program opens
+// with an empty ledger; the user then restores from a backup on the 备份 page.
+// Returns 'relaunch', 'shown' (the user saw the message and chose to quit) or 'none'.
+function offerSetAside(error) {
+  if (!['LEDGER_DAMAGED', 'LEDGER_INVALID', 'LEDGER_FOREIGN'].includes(error.code)) return 'none';
+  const aside = `${layout.dataDir}-有问题-${stamp()}`;
+  const choice = dialog.showMessageBoxSync({
+    type: 'error',
+    title: '账本打不开',
+    message: error.message,
+    detail:
+      `可以把现在的“${path.basename(layout.dataDir)}”文件夹改名为“${path.basename(aside)}”保存起来（不会删除），` +
+      '然后用空账本打开钱来，再到“备份”页选一份备份恢复。',
+    buttons: ['退出', '改名保存并重新打开'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+  if (choice !== 1) return 'shown';
+  fs.renameSync(layout.dataDir, aside);
+  app.relaunch();
+  return 'relaunch';
+}
+
+function folderFor(which) {
+  if (which === 'backups') return ensureDirectory(layout.backupDir);
+  if (which === 'home') return layout.home;
+  throw Object.assign(Error('文件夹无效'), { status: 422 });
+}
+
 if (primary)
   app
     .whenReady()
@@ -253,30 +228,21 @@ if (primary)
       startupEvent('app-ready');
       if (closing) return;
       if (isProbe) {
-        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-finance-probe-'));
         try {
-          const sqlite = await require('./sqlite-probe.cjs')(dir);
+          const sqlite = await require('./sqlite-probe.cjs')(probeDir);
           if (sqlite?.status !== 'passed') throw Error('SQLite 依赖探针未通过');
-          const report = { sqlite, packaged: app.isPackaged };
-          console.log(JSON.stringify(report, null, 2));
+          console.log(JSON.stringify({ sqlite, packaged: app.isPackaged }, null, 2));
           app.exit(0);
         } catch (error) {
           console.error(error);
           app.exit(1);
         } finally {
-          fs.rmSync(dir, { recursive: true, force: true });
+          fs.rmSync(probeDir, { recursive: true, force: true });
         }
         return;
       }
       startupEvent('ledger-opening');
-      ledger = managed
-        ? require('./managed-ledger.cjs').createManagedLedger(dataDir, {
-            backupDestination,
-            allowLegacyRecovery: portable?.allowLegacyRecovery === true,
-          })
-        : require('./ledger.cjs').createLedger(
-            dataDir || path.join(app.getPath('userData'), 'stage0-trial'),
-          );
+      ledger = require('./ledger-service.cjs').openLedgerService(layout.home);
       startupEvent('ledger-open');
       const win = new BrowserWindow({
         width: 1400,
@@ -297,38 +263,49 @@ if (primary)
         startupEvent('render-process-gone', { reason: details.reason, exitCode: details.exitCode });
         if (details.reason !== 'clean-exit') fatalShutdown('renderer-failed');
       });
-      const entry = path.join(__dirname, '..', '..', 'dist', 'index.html'),
+      const entry = path.join(projectRoot, 'dist', 'index.html'),
         entryURL = pathToFileURL(entry).href;
       const trusted = (event) =>
         event.sender === win.webContents &&
         event.senderFrame === win.webContents.mainFrame &&
         event.senderFrame.url === entryURL;
+      const invalid = (message) => Object.assign(Error(message), { status: 422 });
+      async function handle(payload) {
+        if (payload?.kind === 'choose-restore') {
+          if (
+            Object.keys(payload).sort().join(',') !== 'generation,kind' ||
+            typeof payload.generation !== 'string'
+          )
+            throw invalid('恢复选择请求无效');
+          const selected = await dialog.showOpenDialog(win, {
+            title: '选择一份备份，或旧的钱来文件夹',
+            defaultPath: layout.backupDir,
+            properties: ['openDirectory'],
+          });
+          if (selected.canceled) return null;
+          if (closing || selected.filePaths.length !== 1)
+            throw invalid('恢复选择已取消或程序正在关闭');
+          return ledger.command({
+            kind: 'prepare-restore',
+            generation: payload.generation,
+            source: selected.filePaths[0],
+          });
+        }
+        if (payload?.kind === 'show-folder') {
+          if (Object.keys(payload).sort().join(',') !== 'kind,which') throw invalid('文件夹无效');
+          const problem = await shell.openPath(folderFor(payload.which));
+          if (problem) throw invalid('没能打开文件夹：' + problem);
+          return { opened: true };
+        }
+        // Only the native chooser above may name a folder outside 备份/.
+        if (payload?.kind === 'prepare-restore' && Object.hasOwn(payload, 'source'))
+          throw invalid('恢复预览请求无效');
+        return ledger.command(payload);
+      }
       ipcMain.handle('ledger:command', async (event, payload) => {
         if (!trusted(event)) throw Error('拒绝非主窗口请求');
-        if (closing) throw Error('应用正在关闭，请稍后重新打开');
-        const pending = Promise.resolve().then(async () => {
-          if (payload?.kind === 'choose-restore') {
-            if (
-              !managed ||
-              Object.keys(payload).sort().join(',') !== 'generation,kind' ||
-              typeof payload.generation !== 'string'
-            )
-              throw Object.assign(Error('恢复选择请求无效'), { status: 422 });
-            const selected = await dialog.showOpenDialog(win, {
-              title: '选择完整备份目录',
-              properties: ['openDirectory'],
-            });
-            if (selected.canceled) return null;
-            if (closing || selected.filePaths.length !== 1)
-              throw Object.assign(Error('恢复选择已取消或应用正在关闭'), { status: 422 });
-            return ledger.command({
-              kind: 'prepare-restore',
-              generation: payload.generation,
-              backup: selected.filePaths[0],
-            });
-          }
-          return ledger.command(payload);
-        });
+        if (closing) throw Error('程序正在关闭，请稍后重新打开');
+        const pending = Promise.resolve().then(() => handle(payload));
         pendingLedger.add(pending);
         try {
           return await pending;
@@ -374,14 +351,21 @@ if (primary)
     .catch(async (error) => {
       closing = true;
       startupEvent('startup-failed');
-      console.error(`本地账本启动失败：${error.message}`);
-      if (!isProbe) dialog.showErrorBox('无法打开钱来', error.message);
+      console.error(`账本启动失败：${error.message}`);
+      let outcome = 'none';
+      if (!isProbe && !ledger)
+        try {
+          outcome = offerSetAside(error);
+        } catch (renameError) {
+          error.message += `；改名没有成功：${renameError.message}`;
+        }
+      if (!isProbe && outcome === 'none') dialog.showErrorBox('无法打开钱来', error.message);
       try {
         await dispose();
       } catch {
         startupEvent('cleanup-failed');
-        console.error('启动收尾未完成，保留账本及锁');
+        console.error('启动收尾未完成，账本已保留');
       }
-      app.exit(1);
+      app.exit(outcome === 'relaunch' ? 0 : 1);
     });
 app.on('window-all-closed', () => app.quit());

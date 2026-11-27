@@ -1,11 +1,11 @@
+// Screenshots attached to advances: checked, stored once, read back intact, and removed
+// again when the save fails.
 const test = require('node:test'),
   assert = require('node:assert/strict');
 const fs = require('node:fs'),
-  os = require('node:os'),
   path = require('node:path'),
   { randomUUID } = require('node:crypto');
-const Database = require('better-sqlite3');
-const { createLedger } = require('../src/main/ledger.cjs');
+const { ledgerFixture, read } = require('./ledger-fixture.cjs');
 const { MAX_IMAGE_BYTES } = require('../src/main/image-check.cjs');
 const { pngHeaderOnly } = require('./synthetic-image.cjs');
 
@@ -21,47 +21,14 @@ const advance = (amount = 12345, extra = {}) => ({
   image: { base64: png.toString('base64') },
   ...extra,
 });
-function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-advance-attachment-'));
-  let ledger = createLedger(root);
-  t.after(() => {
-    ledger.close();
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  return {
-    root,
-    get ledger() {
-      return ledger;
-    },
-    reopen() {
-      ledger.close();
-      ledger = createLedger(root);
-    },
-    db(fn) {
-      const db = new Database(path.join(root, 'trial.sqlite'));
-      try {
-        return fn(db);
-      } finally {
-        db.close();
-      }
-    },
-  };
-}
-const read = (f) => f.ledger.command({ kind: 'read' });
+const fixture = (t) => ledgerFixture(t, 'qianlai-advance-attachment-');
 async function snapshot(f) {
   return {
     state: await read(f),
-    ...f.db((db) => ({
-      attachments: db.prepare('SELECT * FROM attachments ORDER BY id').all(),
-      operations: db.prepare('SELECT * FROM operations ORDER BY id').all(),
-    })),
-    files: fs
-      .readdirSync(path.join(f.root, 'attachments'))
-      .sort()
-      .map((file) => ({
-        file,
-        base64: fs.readFileSync(path.join(f.root, 'attachments', file)).toString('base64'),
-      })),
+    rows: f.rows(),
+    attachments: f.rows().attachments,
+    operations: f.operations(),
+    files: f.files().map(([file, base64]) => ({ file, base64 })),
   };
 }
 const cash = (s) => ({
@@ -113,22 +80,25 @@ test('advance attachment persists and reopens; idempotent retry creates no dupli
   assert.deepEqual(await snapshot(f), saved);
 });
 
-test('attachment is optional and legacy advance amounts remain undated and unchanged', async (t) => {
-  const f = fixture(t),
-    legacy = { expenses: [], batches: [], advances: [300000, 1] },
-    raw = JSON.stringify(legacy);
-  f.db((db) => db.prepare('UPDATE trial_state SET json=? WHERE id=1').run(raw));
-  f.reopen();
-  assert.deepEqual(await read(f), legacy);
-  assert.equal(
-    f.db((db) => db.prepare('SELECT json FROM trial_state').get().json),
-    raw,
-  );
+test('an attachment is optional', async (t) => {
+  const f = fixture(t);
+  await f.ledger.command(advance(300000));
   const state = await f.ledger.command(advance(2, { image: undefined }));
-  assert.deepEqual(state.advances, [300000, 1, 2]);
-  assert.equal(state.advanceDetails[0], undefined);
-  assert.equal(state.advanceDetails[1], undefined);
-  assert.equal(state.advanceDetails[2].attachmentId, undefined);
+  assert.deepEqual(state.advances, [300000, 2]);
+  assert.equal(typeof state.advanceDetails[0].attachmentId, 'string');
+  assert.equal(state.advanceDetails[1].attachmentId, undefined);
+  assert.equal(f.rows().advances[1].attachment_id, null);
+  const saved = await snapshot(f);
+  assert.equal(saved.attachments.length, 1);
+  assert.equal(saved.files.length, 1);
+  f.reopen();
+  assert.deepEqual(await read(f), state);
+});
+
+test('an advance without any screenshot stores no file', async (t) => {
+  const f = fixture(t);
+  const state = await f.ledger.command(advance(2, { image: undefined }));
+  assert.equal(state.advanceDetails[0].attachmentId, undefined);
   const saved = await snapshot(f);
   assert.deepEqual(saved.attachments, []);
   assert.deepEqual(saved.files, []);
@@ -194,16 +164,14 @@ test('failure after attachment and state writes rolls back all tables and remove
   const f = fixture(t),
     before = await snapshot(f),
     input = advance();
-  f.db((db) =>
-    db.exec(
-      "CREATE TRIGGER fail_attachment_save BEFORE INSERT ON operations WHEN NEW.kind='advance' BEGIN SELECT RAISE(ABORT,'synthetic operation failure'); END",
-    ),
+  f.sql(
+    "CREATE TRIGGER fail_attachment_save BEFORE INSERT ON operations WHEN NEW.kind='advance' BEGIN SELECT RAISE(ABORT,'synthetic operation failure'); END",
   );
   await assert.rejects(f.ledger.command(input), /synthetic operation failure/);
   assert.deepEqual(await snapshot(f), before);
   f.reopen();
   assert.deepEqual(await snapshot(f), before);
-  f.db((db) => db.exec('DROP TRIGGER fail_attachment_save'));
+  f.sql('DROP TRIGGER fail_attachment_save');
   const state = await f.ledger.command(input);
   assert.deepEqual(state.advances, [12345]);
   assert.equal((await snapshot(f)).attachments.length, 1);
@@ -220,7 +188,7 @@ test('transaction rechecks cumulative cents and cleans only the failed request f
   assert.deepEqual(await snapshot(f), before);
 });
 
-test('integrity reads reject a modified managed screenshot without mutating ledger or metadata', async (t) => {
+test('integrity reads reject a modified screenshot without mutating ledger or metadata', async (t) => {
   const f = fixture(t),
     state = await f.ledger.command(advance()),
     id = state.advanceDetails[0].attachmentId,
@@ -228,7 +196,7 @@ test('integrity reads reject a modified managed screenshot without mutating ledg
     record = before.attachments[0];
   const altered = Buffer.from(png);
   altered[altered.length - 1] ^= 1;
-  fs.writeFileSync(path.join(f.root, 'attachments', record.file), altered);
+  fs.writeFileSync(path.join(f.attachmentsDir, record.file), altered);
   await assert.rejects(f.ledger.command({ kind: 'attachment', id }), /附件损坏/);
   const after = await snapshot(f);
   assert.deepEqual(after.state, before.state);

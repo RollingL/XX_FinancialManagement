@@ -1,45 +1,15 @@
+// The “已开票” reminder: a plain yes/no flag on an expense. It never touches money or
+// reimbursement, is kept in the audit trail, and is checked against stale screens.
 const test = require('node:test'),
   assert = require('node:assert/strict'),
-  fs = require('node:fs'),
-  os = require('node:os'),
-  path = require('node:path'),
-  { randomUUID } = require('node:crypto'),
-  Database = require('better-sqlite3');
-const { createManagedLedger } = require('../src/main/managed-ledger.cjs');
-const { seedLegacyInvoices } = require('./legacy-invoice-fixture.cjs');
+  { randomUUID } = require('node:crypto');
+const { ledgerFixture, read, snapshot } = require('./ledger-fixture.cjs');
 function fixture(t) {
-  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-reminder-'))),
-    root = path.join(parent, 'ledger');
-  let ledger = createManagedLedger(root, { backupDestination: parent });
-  t.after(async () => {
-    await ledger.close();
-    fs.rmSync(parent, { recursive: true, force: true });
+  const f = ledgerFixture(t, 'qianlai-reminder-');
+  return Object.assign(f, {
+    send: (input) => f.ledger.command({ requestId: randomUUID(), ...input }),
   });
-  return {
-    root,
-    parent,
-    get ledger() {
-      return ledger;
-    },
-    async send(input) {
-      const state = await ledger.command({ kind: 'read' });
-      return ledger.command({ requestId: randomUUID(), generation: state.generation, ...input });
-    },
-    async reopen() {
-      await ledger.close();
-      ledger = createManagedLedger(root, { backupDestination: parent });
-    },
-    db(fn) {
-      const db = new Database(path.join(root, 'trial.sqlite'));
-      try {
-        return fn(db);
-      } finally {
-        db.close();
-      }
-    },
-  };
 }
-const read = (f) => f.ledger.command({ kind: 'read' });
 const reminder = (state, id, value) => ({
   kind: 'set-invoice-issued',
   requestId: randomUUID(),
@@ -55,18 +25,6 @@ const cash = (s) => ({
   balance: s.advances.reduce((a, b) => a + b, 0) - s.expenses.reduce((a, e) => a + e.amount, 0),
   batches: s.batches,
 });
-async function snapshot(f) {
-  return {
-    state: await read(f),
-    ops: f.db((db) => db.prepare('SELECT * FROM operations ORDER BY id').all()),
-    files: fs
-      .readdirSync(path.join(f.root, 'attachments'))
-      .map((file) => [
-        file,
-        fs.readFileSync(path.join(f.root, 'attachments', file)).toString('base64'),
-      ]),
-  };
-}
 async function setup(t) {
   const f = fixture(t);
   await f.send({ kind: 'advance', advance: { amount: 100, date: '2026-10-16', note: '合成预支' } });
@@ -90,7 +48,7 @@ test('both categories toggle on/off, persist after reopen, and preserve full cas
   const f = await setup(t),
     before = await read(f);
   assert.equal(cash(before).balance, -300);
-  assert.equal(before.expenses[0].invoiceIssued, undefined);
+  assert.equal(before.expenses[0].invoiceIssued, false);
   for (const id of [1, 2])
     for (const flag of [true, false]) {
       const current = await read(f),
@@ -99,7 +57,7 @@ test('both categories toggle on/off, persist after reopen, and preserve full cas
       assert.equal(after.expenses.find((e) => e.id === id).invoiceIssued, flag);
       assert.deepEqual(cash(after), cash(before));
       assert.deepEqual(await f.send(request), after);
-      await f.reopen();
+      f.reopen();
       assert.deepEqual(await read(f), after);
     }
   const after = await read(f);
@@ -108,21 +66,6 @@ test('both categories toggle on/off, persist after reopen, and preserve full cas
     after.expenseEvents.map((e) => e.revision),
     [1, 2, 1, 2],
   );
-});
-
-test('legacy invoice links/amounts never default the reminder to true and are unchanged by toggles', async (t) => {
-  const f = await setup(t);
-  seedLegacyInvoices(f.root, 1);
-  const before = await snapshot(f);
-  assert.equal(before.state.expenses[0].invoiceIssued, undefined);
-  for (const value of [true, false]) {
-    const s = await read(f),
-      after = await f.send(reminder(s, 1, value));
-    assert.deepEqual(after.invoices, before.state.invoices);
-    assert.deepEqual(after.invoiceEvents, before.state.invoiceEvents);
-    assert.deepEqual(cash(after), cash(before.state));
-    assert.deepEqual((await snapshot(f)).files, before.files);
-  }
 });
 
 test('all retired invoice writes, batch link payloads and malformed reminder fields fail without mutations', async (t) => {
@@ -198,14 +141,12 @@ test('transaction failure rolls back marker/audit/receipt and the same request s
   const f = await setup(t),
     before = await snapshot(f),
     request = reminder(before.state, 1, true);
-  f.db((db) =>
-    db.exec(
-      "CREATE TRIGGER synthetic_fail BEFORE INSERT ON operations WHEN NEW.kind='set-invoice-issued' BEGIN SELECT RAISE(ABORT,'synthetic rollback'); END",
-    ),
+  f.sql(
+    "CREATE TRIGGER synthetic_fail BEFORE INSERT ON operations WHEN NEW.kind='set-invoice-issued' BEGIN SELECT RAISE(ABORT,'synthetic rollback'); END",
   );
   await assert.rejects(f.send(request), /synthetic rollback/);
   assert.deepEqual(await snapshot(f), before);
-  f.db((db) => db.exec('DROP TRIGGER synthetic_fail'));
+  f.sql('DROP TRIGGER synthetic_fail');
   const saved = await f.send(request);
   assert.equal(saved.expenseEvents.length, 1);
   assert.deepEqual(await f.send(request), saved);

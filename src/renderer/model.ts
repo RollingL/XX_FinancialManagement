@@ -5,7 +5,6 @@ export type Expense = {
   category: Category;
   merchant: string;
   amount: number;
-  invoice: number;
   invoiceIssued?: boolean;
   note: string;
   attachmentId?: string;
@@ -16,7 +15,6 @@ export type Batch = {
   date: string;
   allocations: Allocation[];
   active: boolean;
-  invoiceLinks?: { invoiceId: number; expenseIds: number[] }[];
 };
 export function decimal(value: number) {
   if (!Number.isSafeInteger(value)) throw new Error('金额超出安全范围');

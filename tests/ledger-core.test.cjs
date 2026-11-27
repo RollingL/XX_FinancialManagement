@@ -2,49 +2,10 @@
 // Every ledger is a new temporary folder with obviously synthetic records.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
 const { randomUUID } = require('node:crypto');
-const Database = require('better-sqlite3');
-const { createLedger } = require('../src/main/ledger.cjs');
+const { ledgerFixture, read, funds } = require('./ledger-fixture.cjs');
 
-function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-core-'));
-  let ledger = createLedger(root);
-  t.after(() => {
-    ledger.close();
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  return {
-    root,
-    get ledger() {
-      return ledger;
-    },
-    reopen() {
-      ledger.close();
-      ledger = createLedger(root);
-    },
-    sql(statement) {
-      const db = new Database(path.join(root, 'trial.sqlite'));
-      try {
-        db.exec(statement);
-      } finally {
-        db.close();
-      }
-    },
-    operations() {
-      const db = new Database(path.join(root, 'trial.sqlite'), { readonly: true });
-      try {
-        return db.prepare('SELECT id, kind FROM operations ORDER BY rowid').all();
-      } finally {
-        db.close();
-      }
-    },
-  };
-}
-
-const read = (f) => f.ledger.command({ kind: 'read' });
+const fixture = (t) => ledgerFixture(t, 'qianlai-core-');
 
 const expense = (fields = {}) => ({
   kind: 'expense',
@@ -72,16 +33,7 @@ const batch = (allocations, date = '2026-11-15') => ({
   allocations,
 });
 
-// Everything that is money. Reimbursement must never change any of it.
-const funds = (state) => ({
-  advances: state.advances,
-  advanceDetails: state.advanceDetails,
-  expenses: state.expenses,
-});
-
-const balance = (state) =>
-  state.advances.reduce((sum, value) => sum + value, 0) -
-  state.expenses.reduce((sum, item) => sum + item.amount, 0);
+const balance = (state) => funds(state).balance;
 
 const reimbursed = (state, expenseId) =>
   state.batches

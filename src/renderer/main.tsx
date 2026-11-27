@@ -172,13 +172,10 @@ function App() {
         setState(value);
         setLoaded(true);
         try {
-          const warning = sessionStorage.getItem('qianlai-restore-warning');
-          if (warning) {
-            sessionStorage.removeItem('qianlai-restore-warning');
-            setNotice(warning);
-          } else if (sessionStorage.getItem('qianlai-reset-complete') === '1') {
-            sessionStorage.removeItem('qianlai-reset-complete');
-            setNotice('清空操作已完成，已重新加载当前账本。');
+          const replaced = sessionStorage.getItem('qianlai-ledger-replaced');
+          if (replaced) {
+            sessionStorage.removeItem('qianlai-ledger-replaced');
+            setNotice(replaced);
           }
         } catch {
           /* 提示存储不可用不影响账本加载。 */
@@ -764,10 +761,9 @@ function App() {
         )}
         {isBackup ? (
           <BackupPage
-            onResetComplete={(warning) => {
+            onLedgerReplaced={(message) => {
               try {
-                if (warning) sessionStorage.setItem('qianlai-restore-warning', warning);
-                else sessionStorage.setItem('qianlai-reset-complete', '1');
+                sessionStorage.setItem('qianlai-ledger-replaced', message);
               } catch {
                 /* 页面刷新必须继续。 */
               }
@@ -1051,7 +1047,7 @@ function App() {
                     <p>
                       {expenses.length
                         ? '调整筛选条件，或记录一笔新费用。'
-                        : '填写金额、日期和商户，可附上支付截图作为凭证。'}
+                        : '填写金额、日期和商户，可附上支付截图作为凭证。以前用过钱来？到“备份”页从旧文件夹导入账本。'}
                     </p>
                     <button disabled={!loaded} onClick={() => openNew()}>
                       新增费用

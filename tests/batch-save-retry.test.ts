@@ -10,7 +10,7 @@ import { runInNewContext } from 'node:vm';
 import { rolldown } from 'rolldown';
 import { balance } from '../src/renderer/model.ts';
 const require = createRequire(import.meta.url);
-const { createLedger } = require('../src/main/ledger.cjs');
+const { openLedger } = require('../src/main/ledger.cjs');
 // Compile the actual App only in memory; use its handlers with a fresh synthetic SQLite ledger.
 const build = await rolldown({
   input: fileURLToPath(new URL('../src/renderer/main.tsx', import.meta.url)),
@@ -62,7 +62,7 @@ async function fixture(
   transport?: (request: any, send: (request: any) => Promise<any>) => Promise<any>,
 ) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qianlai-batch-retry-')),
-    ledger = createLedger(root);
+    ledger = openLedger(root);
   t.after(() => {
     ledger.close();
     fs.rmSync(root, { recursive: true, force: true });

@@ -11,7 +11,6 @@ test('费用支出涵盖跨年、跨月和当日全部费用，分类之和与�
       category: '接待',
       amount: 10001,
       merchant: '合成历史接待',
-      invoice: 0,
       note: '',
     },
     {
@@ -20,7 +19,6 @@ test('费用支出涵盖跨年、跨月和当日全部费用，分类之和与�
       category: '办公',
       amount: 20002,
       merchant: '合成上月办公',
-      invoice: 0,
       note: '',
     },
     {
@@ -29,7 +27,6 @@ test('费用支出涵盖跨年、跨月和当日全部费用，分类之和与�
       category: '接待',
       amount: 30003,
       merchant: '合成当月接待',
-      invoice: 0,
       note: '',
     },
     {
@@ -38,7 +35,6 @@ test('费用支出涵盖跨年、跨月和当日全部费用，分类之和与�
       category: '办公',
       amount: 1,
       merchant: '合成当月办公',
-      invoice: 0,
       note: '',
     },
   ];

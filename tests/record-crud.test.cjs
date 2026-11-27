@@ -1,44 +1,18 @@
+// Correcting and deleting advances and expenses: numbers stay, screenshots stay,
+// before/after copies are kept, and a failed save changes nothing.
 const test = require('node:test'),
   assert = require('node:assert/strict'),
   fs = require('node:fs'),
-  os = require('node:os'),
   path = require('node:path'),
-  { randomUUID } = require('node:crypto'),
-  Database = require('better-sqlite3');
-const { createLedger } = require('../src/main/ledger.cjs');
+  { randomUUID } = require('node:crypto');
+const { ledgerFixture, read, snapshot } = require('./ledger-fixture.cjs');
 const png = fs.readFileSync(path.join(__dirname, 'fixtures/synthetic-payment.png'));
-function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xx-crud-'));
-  let ledger = createLedger(root);
-  t.after(() => {
-    ledger.close();
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  return {
-    root,
-    get ledger() {
-      return ledger;
-    },
-    reopen() {
-      ledger.close();
-      ledger = createLedger(root);
-    },
-    db(fn) {
-      const db = new Database(path.join(root, 'trial.sqlite'));
-      try {
-        return fn(db);
-      } finally {
-        db.close();
-      }
-    },
-  };
-}
-const read = (f) => f.ledger.command({ kind: 'read' }),
-  cash = (s) => ({
-    advances: s.advances,
-    expenseFlows: s.expenses.map((e) => ({ id: e.id, date: e.date, amount: -e.amount })),
-    balance: s.advances.reduce((a, b) => a + b, 0) - s.expenses.reduce((a, e) => a + e.amount, 0),
-  });
+const fixture = (t) => ledgerFixture(t, 'qianlai-crud-');
+const cash = (s) => ({
+  advances: s.advances,
+  expenseFlows: s.expenses.map((e) => ({ id: e.id, date: e.date, amount: -e.amount })),
+  balance: s.advances.reduce((a, b) => a + b, 0) - s.expenses.reduce((a, e) => a + e.amount, 0),
+});
 async function setup(t) {
   const f = fixture(t);
   await f.ledger.command({
@@ -82,18 +56,6 @@ const expenseDelete = (s) => ({
   expected: structuredClone(s.expenses[0]),
   expectedRevision: (s.expenseEvents ?? []).filter((e) => e.expenseId === 1).length,
 });
-async function snapshot(f) {
-  return {
-    state: await read(f),
-    ops: f.db((db) => db.prepare('SELECT * FROM operations ORDER BY id').all()),
-    files: fs
-      .readdirSync(path.join(f.root, 'attachments'))
-      .map((file) => [
-        file,
-        fs.readFileSync(path.join(f.root, 'attachments', file)).toString('base64'),
-      ]),
-  };
-}
 test('advance edit/delete preserves stable IDs, attachment metadata and audit; replay, stale snapshot and reopen', async (t) => {
   const f = await setup(t),
     before = await snapshot(f),
@@ -129,36 +91,47 @@ test('advance edit/delete preserves stable IDs, attachment metadata and audit; r
   assert.deepEqual(added.advances, [0, 1]);
   assert.equal(added.advanceDetails[1].date, '2026-10-13');
 });
-test('legacy advance deletion does not invent dates; invalid/stale fields and transaction failure rollback', async (t) => {
+test('advance deletion refuses invalid or stale fields and rolls back a failed save', async (t) => {
   const f = fixture(t);
-  f.db((db) =>
-    db
-      .prepare('UPDATE trial_state SET json=?')
-      .run(JSON.stringify({ expenses: [], batches: [], advances: [123] })),
-  );
+  await f.ledger.command({
+    kind: 'advance',
+    requestId: randomUUID(),
+    advance: { amount: 123, date: '2026-10-13', note: '合成预支' },
+  });
   const initial = await snapshot(f),
     input = advanceRequest(initial.state, 0, 'delete-advance');
   for (const change of [
     { id: -1 },
+    { id: 1 },
     { expectedAmount: 124 },
     { expectedRevision: 1 },
     { expected: {} },
     { image: { base64: 'abc' } },
   ]) {
-    await assert.rejects(f.ledger.command({ ...input, ...change }));
+    await assert.rejects(
+      f.ledger.command({ ...input, ...change }),
+      undefined,
+      JSON.stringify(change),
+    );
     assert.deepEqual(await snapshot(f), initial);
   }
-  f.db((db) =>
-    db.exec(
-      "CREATE TRIGGER fail_delete BEFORE INSERT ON operations BEGIN SELECT RAISE(ABORT,'synthetic rollback'); END",
-    ),
+  f.sql(
+    "CREATE TRIGGER fail_delete BEFORE INSERT ON operations BEGIN SELECT RAISE(ABORT,'synthetic rollback'); END",
   );
   await assert.rejects(f.ledger.command(input), /synthetic rollback/);
   assert.deepEqual(await snapshot(f), initial);
-  f.db((db) => db.exec('DROP TRIGGER fail_delete'));
+  f.sql('DROP TRIGGER fail_delete');
   const after = await f.ledger.command(input);
-  assert.deepEqual(after.advanceDetails[0], { deleted: true });
-  assert.deepEqual(after.advanceEvents[0].before, { amount: 123, details: null });
+  assert.deepEqual(after.advances, [0]);
+  assert.deepEqual(after.advanceDetails[0], { ...initial.state.advanceDetails[0], deleted: true });
+  assert.deepEqual(after.advanceEvents[0].before, {
+    amount: 123,
+    details: initial.state.advanceDetails[0],
+  });
+  await assert.rejects(
+    f.ledger.command(advanceRequest(after, 0, 'delete-advance')),
+    /不存在或已删除/,
+  );
 });
 test('expense deletion rejects active allocation, permits canceled historical references, preserves attachments and reserves ID', async (t) => {
   const f = await setup(t),
@@ -194,26 +167,19 @@ test('expense deletion operation failure rolls back state/audit and retries exac
   const f = await setup(t),
     before = await snapshot(f),
     input = expenseDelete(before.state);
-  f.db((db) =>
-    db.exec(
-      "CREATE TRIGGER fail_delete BEFORE INSERT ON operations WHEN NEW.kind='delete-expense' BEGIN SELECT RAISE(ABORT,'synthetic rollback'); END",
-    ),
+  f.sql(
+    "CREATE TRIGGER fail_delete BEFORE INSERT ON operations WHEN NEW.kind='delete-expense' BEGIN SELECT RAISE(ABORT,'synthetic rollback'); END",
   );
   await assert.rejects(f.ledger.command(input), /synthetic rollback/);
   assert.deepEqual(await snapshot(f), before);
-  f.db((db) => db.exec('DROP TRIGGER fail_delete'));
+  f.sql('DROP TRIGGER fail_delete');
   const result = await f.ledger.command(input);
   assert.equal(result.expenseEvents.length, 1);
   assert.deepEqual(await f.ledger.command(input), result);
 });
-test('retired batch invoice payload is rejected and expense deletion preserves historical invoice fields', async (t) => {
+test('the retired invoice payload on a batch is refused and changes nothing', async (t) => {
   const f = await setup(t),
-    state = await read(f),
-    invoice = { id: 1, expenseIds: [1], allocations: [{ expenseId: 1, amount: 1 }] };
-  state.invoices = [invoice];
-  state.invoiceEvents = [];
-  f.db((db) => db.prepare('UPDATE trial_state SET json=?').run(JSON.stringify(state)));
-  const before = await snapshot(f);
+    before = await snapshot(f);
   await assert.rejects(
     f.ledger.command({
       kind: 'batch',
@@ -225,8 +191,4 @@ test('retired batch invoice payload is rejected and expense deletion preserves h
     /发票管理已停用/,
   );
   assert.deepEqual(await snapshot(f), before);
-  const deleted = await f.ledger.command(expenseDelete(state));
-  assert.deepEqual(deleted.invoices, state.invoices);
-  assert.deepEqual(deleted.invoiceEvents, state.invoiceEvents);
-  assert.deepEqual((await snapshot(f)).files, before.files);
 });

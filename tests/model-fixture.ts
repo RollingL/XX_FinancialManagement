@@ -7,7 +7,6 @@ export function demo() {
       category: '接待',
       merchant: '青禾餐厅',
       amount: 500000,
-      invoice: 500000,
       note: '客户项目交流 · 合成演示数据',
     },
     {
@@ -16,7 +15,6 @@ export function demo() {
       category: '办公',
       merchant: '办公耗材采购',
       amount: 80000,
-      invoice: 30000,
       note: '打印纸及墨盒 · 合成演示数据',
     },
     {
@@ -25,7 +23,6 @@ export function demo() {
       category: '接待',
       merchant: '南山茶室',
       amount: 120000,
-      invoice: 0,
       note: '项目沟通 · 合成演示数据',
     },
     {
@@ -34,7 +31,6 @@ export function demo() {
       category: '办公',
       merchant: '会议用转接器',
       amount: 26000,
-      invoice: 26000,
       note: '合成演示数据',
     },
   ];
