@@ -4,7 +4,7 @@
 
 - 目标电脑：Windows 10 Intel x64，断网也能用（便携 ZIP，解压即用）。
 - 开发：Mac 或 Linux。
-- 技术：Electron + React + TypeScript + SQLite，截图识别用本地 Python OCR。
+- 技术：Electron + React + TypeScript + SQLite。
 
 ## 核心规则（三句话）
 
@@ -16,7 +16,7 @@
 
 ## 现在能做什么
 
-- 记费用（接待 / 办公）：手动填写，或上传支付截图让本机 OCR 辅助填写，确认后保存，截图一起保存。可纠错、删除误填。
+- 记费用（接待 / 办公）：手动填写金额、日期、商户，可附一张支付截图作为凭证。可纠错、删除误填。
 - 记预支到账，可附到账截图，可修改、删除误填。
 - 登记报销：一次报多笔、一笔分几次报、跨类别都可以；可撤销、删除误填批次。
 - 费用详情里标记“是否已开票”。
@@ -45,11 +45,10 @@
 
 ```sh
 npm ci
-npm run build
-npm test
+npm run check     # 格式检查 + 构建 + 全部测试（和 PR 自动检查一样）
 
 # 用一个临时空账本启动浏览器开发界面：http://127.0.0.1:5173/
 XX_FINANCE_DATA_DIR="$(mktemp -d)/ledger" npm run dev
 ```
 
-更多（桌面版、OCR、打包）见 [开发指南](docs/DEVELOPMENT.md)。**开发和测试只用临时数据，不要碰真实账本。**
+代码在 `src/main`（主进程和账本）、`src/renderer`（界面），测试在 `tests/`。更多（桌面版、打包）见 [开发指南](docs/DEVELOPMENT.md)。**开发和测试只用临时数据，不要碰真实账本。**

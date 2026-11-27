@@ -75,4 +75,4 @@ colors:
 
 ## 实现位置
 
-`prototype/index.html`、`prototype/src/style.css`（主题与布局）以及 `backup.css`、`expense-export.css`、`expense-correction.css`、`invoice-reminder.css`；页面逻辑在 `prototype/src/main.tsx` 和同目录组件。`.impeccable/design.json` 是设计工具使用的配色记录。
+`src/renderer/index.html`、`src/renderer/style.css`（主题与布局）以及 `backup.css`、`expense-export.css`、`expense-correction.css`、`invoice-reminder.css`；页面逻辑在 `src/renderer/main.tsx` 和同目录组件。`.impeccable/design.json` 是设计工具使用的配色记录。

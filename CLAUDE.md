@@ -14,8 +14,8 @@
 
 Claude 通常在云端 Linux 容器里工作：
 
-- **能做**：`npm ci`、`npm run build`、`npm test`、Python 字段解析测试、用临时数据目录启动浏览器开发模式并用 Playwright 实际操作和截图。
-- **不能做**：运行 Windows 或 Mac 桌面版、在 Windows 10 真机验收。OCR 模型默认没有安装，需要按 [DEVELOPMENT 第 3 节](docs/DEVELOPMENT.md#ocr-环境) 自行准备（尚未在云端验证过）。
+- **能做**：`npm ci`、`npm run check`、用临时数据目录启动浏览器开发模式或真实桌面版（Electron + `xvfb-run`），并用 Playwright 实际操作和截图（见 [DEVELOPMENT 第 5 节](docs/DEVELOPMENT.md#5-界面检查)）。
+- **不能做**：运行 Windows 或 Mac 桌面版、在 Windows 10 真机验收。
 - 汇报时写明“在 Linux 云端验证”，不要暗示 Windows 或 Mac 也通过了。
 - 需要 Windows 包时，通过 GitHub Actions 手动触发（见 [DEVELOPMENT 第 4 节](docs/DEVELOPMENT.md#windows-离线包)），**每次触发前先征得负责人同意**。
 

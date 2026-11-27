@@ -8,25 +8,28 @@
 | --- | --- | --- |
 | Node.js | 26.10.0（Windows 打包 CI 固定用这个） | 2026-11-27 在 Linux + Node 22.23 上构建和全部测试也通过 |
 | npm | 随 Node | 只用 `npm ci` 按锁文件安装，不要随手 `npm install` 升级依赖 |
-| Python | 3.12 | 只有 OCR 需要；装在项目内的 `.venv-ocr/`，不改系统 Python |
 
 安装依赖、第一次构建需要联网（会下载 Electron 和原生模块）。软件运行本身完全离线。
 
 ## 2. 常用命令
 
 ```sh
-npm ci            # 按锁文件安装依赖
-npm run build     # TypeScript 类型检查 + 打包网页到 dist/
-npm test          # 全部 Node 测试（tests/*.test.ts 和 tests/*.test.cjs）
+npm ci                  # 按锁文件安装依赖
+npm run check           # 一次跑完下面三项（和 PR 自动检查一样）
+npm run format:check    # 检查代码格式（Prettier）
+npm run build           # TypeScript 类型检查 + 打包网页到 dist/
+npm test                # 全部测试（tests/*.test.ts 和 tests/*.test.cjs）
 
-# 只跑某一个测试文件
-node --test tests/model.test.ts
-
-# Python 字段解析测试（不需要 OCR 模型，系统 Python 3.12+ 即可）
-python3 -B -m unittest discover -s tests -p 'test_*.py'
+npm run format          # 自动整理代码格式
+npm run test:coverage   # 跑测试并列出哪些代码还没被测试覆盖
+node --test tests/model.test.ts   # 只跑某一个测试文件
 ```
 
-预期结果（2026-11-27，Linux）：构建通过；Node 测试 278 项通过、5 项跳过（Windows 专用）；Python 21 项通过。
+预期结果（2026-11-27，Linux + Node 22）：格式检查通过；构建通过；测试 281 项通过、5 项跳过（Windows 专用）。
+
+### PR 自动检查
+
+每个 PR 和每次合并到 `main`，GitHub 都会自动跑 `.github/workflows/ci.yml`：在 Ubuntu 上 `npm ci` → 格式检查 → 构建 → 全部测试。PR 页面底部会显示通过（绿勾）或失败（红叉）。失败时点进去看是哪一步，修好再推送即可。这项检查只在 Linux 上跑，**不代表** Windows 也通过。
 
 ## 3. 本地运行
 
@@ -63,35 +66,25 @@ npm start
 
 `user-data` 和 `backups` 要先建好；账本目录由程序自己创建。用同一个 `$root` 再启动一次，可以检查数据是否保留。
 
-### OCR 环境
-
-```sh
-python3.12 -m venv .venv-ocr
-.venv-ocr/bin/python -m pip install -r spike/requirements.txt
-.venv-ocr/bin/python spike/prepare_models.py        # 从锁定的 RapidOCR 包复制 3 个模型并核对哈希
-.venv-ocr/bin/python spike/ocr_probe.py spike/fixtures/ocr-sample.png
-```
-
-没有 `.venv-ocr` 时，识别会失败；而且**带截图的费用也保存不了**（保存前要用 OCR 子进程检查图片，见审查报告第 10 条）。不带截图的记账不受影响。
+试上传截图时，用 `tests/fixtures/` 里的合成图片，不要用真实截图。
 
 ## 4. 打包
 
 ### Mac（开发验证用）
 
 ```sh
-cd spike && ../.venv-ocr/bin/pyinstaller --noconfirm ocr-probe.spec --distpath ocr-dist --workpath ocr-build && cd ..
 npm run package                      # 输出到 out/
-npm run probe:electron               # 用临时数据库检查 SQLite 和随包 OCR
+npm run probe:electron               # 用临时数据库检查 SQLite 能否运行
 ```
 
 Mac 包没有签名和公证，只用于开发验证。
 
 ### Windows 离线包
 
-Windows 包**只能在 GitHub Actions 上构建**（`spike/build-windows-trial.ps1` 会拒绝在其他地方运行）：
+Windows 包**只能在 GitHub Actions 上构建**（`scripts/windows/build-portable.ps1` 会拒绝在其他地方运行）：
 
-1. 打开仓库的 Actions → “Windows x64 offline trial candidate” → Run workflow，选择要打包的分支。原来自动触发用的 `codex/windows10-offline-acceptance` 分支已经不存在，现在只能这样手动触发。
-2. 构建约需几十分钟，会在 Windows Server 上跑原生启动器测试、定向 Node/Python 测试、打包、解压后实际启动 GUI 并检查。
+1. 打开仓库的 Actions → “Windows portable package” → Run workflow，选择要打包的分支。只能手动触发；工作流文件要先合并到 `main`，按钮才会出现。
+2. 构建会在 Windows Server 上编译并测试原生启动器、跑定向 Node 测试、打包、解压后实际启动 GUI 并检查。移除 OCR 后不再需要 Python。
 3. 产物在该次运行页面下载，**只保留 7 天**。包内 `build-info.json` 记录源码提交，同名 `.sha256` 文件记录校验值。
 4. 用户使用和升级说明是 [WINDOWS_OFFLINE_TRIAL.md](WINDOWS_OFFLINE_TRIAL.md)（会作为 `READ-ME.txt` 打进包里），真机验收清单是 [WINDOWS_VALIDATION.md](WINDOWS_VALIDATION.md)。
 
@@ -99,25 +92,34 @@ Windows 包**只能在 GitHub Actions 上构建**（`spike/build-windows-trial.p
 
 ## 5. 界面检查
 
-改了界面后，用临时数据目录启动浏览器开发模式，再用浏览器自动化工具实际点一遍。Claude 的云端环境自带 Playwright（`require('playwright')`，`chromium.launch()` 即可），示例：
+改了界面后，用临时数据目录启动，再用浏览器自动化工具实际点一遍。Claude 的云端环境自带 Playwright（`require('playwright')`），有两种方式：
+
+- **浏览器开发模式**：先按第 3 节启动 `npm run dev`，再用 `chromium.launch()` 打开 http://127.0.0.1:5173/ 。
+- **真实桌面版**：在 Linux 云端也能跑 Electron（需要虚拟显示器 `xvfb-run`），这样检查的是和用户一样的程序：
 
 ```js
-const {chromium} = require('playwright');
-const browser = await chromium.launch();
-const page = await browser.newPage({viewport: {width: 1400, height: 920}, locale: 'zh-CN'});
-await page.goto('http://127.0.0.1:5173/');
-await page.screenshot({path: 'overview.png'});
+// xvfb-run -a node check.cjs
+const { _electron } = require('playwright');
+const app = await _electron.launch({
+  executablePath: 'node_modules/electron/dist/electron',
+  args: ['.', '--no-sandbox'],
+  env: { ...process.env, XX_FINANCE_MANAGED_TRIAL: '1', XX_FINANCE_USER_DATA_DIR: '<临时目录>/user', XX_FINANCE_DATA_DIR: '<临时目录>/user/ledger', XX_FINANCE_BACKUP_DIR: '<临时目录>/backups' },
+});
+const page = await app.firstWindow();
+await page.screenshot({ path: 'overview.png' });
 ```
+
+`node_modules/electron/dist` 不存在时，先运行 `node node_modules/electron/install.js` 下载 Electron。
 
 建议至少检查三种窗口大小：1400×920、1024×768、800×600。截图和临时脚本放在 Git 忽略的位置（例如系统临时目录或 `evidence/`），**不要提交**。
 
 ## 6. Git 规则
 
 - **`.gitignore` 是白名单**：开头一行 `*` 先忽略所有文件，再用 `!` 逐个放行。新建的文件如果不在放行名单里，`git status` 里看不到、也不会被提交。新增文件时：
-  - 放在已有的放行位置（例如 `prototype/src/*.tsx`、`tests/*.test.ts`、`docs/*.md`）；或
+  - 放在已有的放行位置（例如 `src/renderer/*.tsx`、`src/main/*.cjs`、`tests/*.test.ts`、`docs/*.md`）；或
   - 在 `.gitignore` 里加上对应的 `!` 规则（子文件夹要同时放行文件夹和里面的文件）。
   - 提交前用 `git status --short` 确认新文件确实出现了。
-- 这样设计是为了防止误传真实账本、截图、备份、证据和模型。**不要用 `git add -f` 强行加入被忽略的文件。**
+- 这样设计是为了防止误传真实账本、截图、备份和证据。**不要用 `git add -f` 强行加入被忽略的文件。**
 - 不在 `main` 上直接提交；在分支上改，开 PR，由用户合并。
 - 提交信息写清楚改了什么、为什么。
 

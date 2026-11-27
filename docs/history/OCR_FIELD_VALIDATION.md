@@ -1,6 +1,8 @@
 # 阶段 0：离线 OCR 金额字段验证
 
 > **历史记录（只读）**：本文反映写作当时的情况，其中的“当前”“本轮”“下一步”都指当时。现行规则见 [业务规则](../BUSINESS_RULES.md)，现状见 [STATUS](../STATUS.md)。
+>
+> 文中的合成图片已随 OCR 一起在 2026-11-27 删除，需要时可在 git 历史（提交 `6f307e0` 及之前的 `spike/fixtures/ocr-fields/`）中找到。
 
 > 历史报告：记录 2026-10-12 金额字段探针时点的结果，保留原样本和失败项。后续商户／日期解析、费用内置截图及试用保存见 [OCR_REVIEW_UI](OCR_REVIEW_UI.md)；唯一当前状态见 [STAGE0_STATUS 顶部](STAGE0_STATUS.md#当前状态)。本次基础整理未重跑此报告的命令；本机 `evidence/` 不纳入 Git。
 
@@ -25,7 +27,7 @@ Mac arm64 上在系统级禁止网络连接的环境中，实际运行了 **30 �
 - 当前置信度阈值 0.90 是未经真实数据校准的保守门槛，并非正确概率。高置信度仍可能错字。
 
 ## 已发现的失败样本
-[全角金额图片](../../spike/fixtures/ocr-fields/21_fullwidth.png) 的原文是“128．50”和“900．00”，OCR 输出为“128·50”和“900·00”，置信度分别为 0.99173、0.98676。
+`全角金额图片` 的原文是“128．50”和“900．00”，OCR 输出为“128·50”和“900·00”，置信度分别为 0.99173、0.98676。
 解析器拒绝非法金额，支付金额与余额均留空，并给出 unresolved_amount_label 警告；没有将其误记为 12850 元或替换小数点。
 最小处理：保留原图和 OCR 文本，要求人工填写/核对金额。以后可评估局部重识别，但本轮不引入自动纠字猜测。
 
@@ -39,36 +41,36 @@ Mac arm64 上在系统级禁止网络连接的环境中，实际运行了 **30 �
 
 |样本与原图|付款状态|支付候选|账户余额|退款候选|支出建议|结果|
 |---|---|---:|---:|---:|---:|---|
-|[01_paid_balance](../../spike/fixtures/ocr-fields/01_paid_balance.png)|已付款线索|128.50|9,800.00|留空|128.50|符合预期|
-|[02_balance_smaller](../../spike/fixtures/ocr-fields/02_balance_smaller.png)|已付款线索|1,500.00|20.00|留空|1,500.00|符合预期|
-|[03_refund](../../spike/fixtures/ocr-fields/03_refund.png)|退款相关|留空|9,800.00|128.50|留空|符合预期|
-|[04_partial_refund](../../spike/fixtures/ocr-fields/04_partial_refund.png)|退款相关|留空|900.00|100.00|留空|符合预期|
-|[05_refund_pending](../../spike/fixtures/ocr-fields/05_refund_pending.png)|退款相关|留空|留空|80.00|留空|符合预期|
-|[06_refund_failed](../../spike/fixtures/ocr-fields/06_refund_failed.png)|退款相关|留空|留空|88.00|留空|符合预期|
-|[07_mixed_payment_refund](../../spike/fixtures/ocr-fields/07_mixed_payment_refund.png)|退款相关|100.00|1,000.00|20.00|留空|符合预期|
-|[08_waiting](../../spike/fixtures/ocr-fields/08_waiting.png)|未付款|128.50|5,000.00|留空|留空|符合预期|
-|[09_failed_payment](../../spike/fixtures/ocr-fields/09_failed_payment.png)|未付款|80.00|900.00|留空|留空|符合预期|
-|[10_closed](../../spike/fixtures/ocr-fields/10_closed.png)|未付款|留空|900.00|留空|留空|符合预期|
-|[11_only_balance](../../spike/fixtures/ocr-fields/11_only_balance.png)|已付款线索|留空|8,000.00|留空|留空|符合预期|
-|[12_only_unlabelled](../../spike/fixtures/ocr-fields/12_only_unlabelled.png)|未知|留空|留空|留空|留空|符合预期|
-|[13_discount](../../spike/fixtures/ocr-fields/13_discount.png)|已付款线索|90.00|900.00|留空|90.00|符合预期|
-|[14_tax](../../spike/fixtures/ocr-fields/14_tax.png)|已付款线索|106.00|3,000.00|留空|106.00|符合预期|
-|[15_invoice](../../spike/fixtures/ocr-fields/15_invoice.png)|发票|留空|留空|留空|留空|符合预期|
-|[16_incoming](../../spike/fixtures/ocr-fields/16_incoming.png)|收款相关|留空|900.00|留空|留空|符合预期|
-|[17_conflict](../../spike/fixtures/ocr-fields/17_conflict.png)|已付款线索|留空|2,000.00|留空|留空|符合预期|
-|[18_repeated](../../spike/fixtures/ocr-fields/18_repeated.png)|已付款线索|留空|留空|留空|留空|符合预期|
-|[19_one_cent](../../spike/fixtures/ocr-fields/19_one_cent.png)|已付款线索|0.01|100.00|留空|0.01|符合预期|
-|[20_zero](../../spike/fixtures/ocr-fields/20_zero.png)|已付款线索|0.00|100.00|留空|留空|符合预期|
-|[21_fullwidth](../../spike/fixtures/ocr-fields/21_fullwidth.png)|已付款线索|留空|留空|留空|留空|未精确提取，安全留空|
-|[22_grouped](../../spike/fixtures/ocr-fields/22_grouped.png)|已付款线索|1,280.50|98,000.00|留空|1,280.50|符合预期|
-|[23_split_columns](../../spike/fixtures/ocr-fields/23_split_columns.png)|已付款线索|128.50|8,000.00|留空|128.50|符合预期|
-|[24_split_rows](../../spike/fixtures/ocr-fields/24_split_rows.png)|已付款线索|128.50|8,000.00|留空|128.50|符合预期|
-|[25_unknown_status](../../spike/fixtures/ocr-fields/25_unknown_status.png)|未知|128.50|8,000.00|留空|留空|符合预期|
-|[26_foreign_currency](../../spike/fixtures/ocr-fields/26_foreign_currency.png)|已付款线索|128.50|留空|留空|留空|符合预期|
-|[27_dark](../../spike/fixtures/ocr-fields/27_dark.png)|已付款线索|66.60|9,900.00|留空|66.60|符合预期|
-|[28_small](../../spike/fixtures/ocr-fields/28_small.png)|已付款线索|66.60|9,900.00|留空|66.60|符合预期|
-|[29_blur](../../spike/fixtures/ocr-fields/29_blur.png)|已付款线索|66.60|9,900.00|留空|66.60|符合预期|
-|[30_jpeg](../../spike/fixtures/ocr-fields/30_jpeg.jpg)|退款相关|留空|1,600.00|40.00|留空|符合预期|
+|`01_paid_balance`|已付款线索|128.50|9,800.00|留空|128.50|符合预期|
+|`02_balance_smaller`|已付款线索|1,500.00|20.00|留空|1,500.00|符合预期|
+|`03_refund`|退款相关|留空|9,800.00|128.50|留空|符合预期|
+|`04_partial_refund`|退款相关|留空|900.00|100.00|留空|符合预期|
+|`05_refund_pending`|退款相关|留空|留空|80.00|留空|符合预期|
+|`06_refund_failed`|退款相关|留空|留空|88.00|留空|符合预期|
+|`07_mixed_payment_refund`|退款相关|100.00|1,000.00|20.00|留空|符合预期|
+|`08_waiting`|未付款|128.50|5,000.00|留空|留空|符合预期|
+|`09_failed_payment`|未付款|80.00|900.00|留空|留空|符合预期|
+|`10_closed`|未付款|留空|900.00|留空|留空|符合预期|
+|`11_only_balance`|已付款线索|留空|8,000.00|留空|留空|符合预期|
+|`12_only_unlabelled`|未知|留空|留空|留空|留空|符合预期|
+|`13_discount`|已付款线索|90.00|900.00|留空|90.00|符合预期|
+|`14_tax`|已付款线索|106.00|3,000.00|留空|106.00|符合预期|
+|`15_invoice`|发票|留空|留空|留空|留空|符合预期|
+|`16_incoming`|收款相关|留空|900.00|留空|留空|符合预期|
+|`17_conflict`|已付款线索|留空|2,000.00|留空|留空|符合预期|
+|`18_repeated`|已付款线索|留空|留空|留空|留空|符合预期|
+|`19_one_cent`|已付款线索|0.01|100.00|留空|0.01|符合预期|
+|`20_zero`|已付款线索|0.00|100.00|留空|留空|符合预期|
+|`21_fullwidth`|已付款线索|留空|留空|留空|留空|未精确提取，安全留空|
+|`22_grouped`|已付款线索|1,280.50|98,000.00|留空|1,280.50|符合预期|
+|`23_split_columns`|已付款线索|128.50|8,000.00|留空|128.50|符合预期|
+|`24_split_rows`|已付款线索|128.50|8,000.00|留空|128.50|符合预期|
+|`25_unknown_status`|未知|128.50|8,000.00|留空|留空|符合预期|
+|`26_foreign_currency`|已付款线索|128.50|留空|留空|留空|符合预期|
+|`27_dark`|已付款线索|66.60|9,900.00|留空|66.60|符合预期|
+|`28_small`|已付款线索|66.60|9,900.00|留空|66.60|符合预期|
+|`29_blur`|已付款线索|66.60|9,900.00|留空|66.60|符合预期|
+|`30_jpeg`|退款相关|留空|1,600.00|40.00|留空|符合预期|
 
 ## 复现命令
 项目根目录，沿用已有 .venv-ocr、固定依赖及本地模型，无需重新下载：

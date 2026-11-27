@@ -18,7 +18,7 @@
 
 本轮复核发现原写入口接受不符合分段格式的36字符请求ID，而备份会拒绝该记录；现统一为备份已有的UUID格式校验，并验证六类写命令的非法ID无写入。没有增加UUID版本限制或改写旧记录。
 
-主要实现：[后端](../../spike/trial-ledger.cjs)、[备份校验](../../spike/ledger-backup.cjs)、[客户端规则](../../prototype/src/expense-correction.ts)、[纠错表单与审计](../../prototype/src/ExpenseCorrection.tsx)、[入口与提交](../../prototype/src/main.tsx)。
+主要实现：[后端](../../src/main/ledger.cjs)、[备份校验](../../src/main/ledger-backup.cjs)、[客户端规则](../../src/renderer/expense-correction.ts)、[纠错表单与审计](../../src/renderer/ExpenseCorrection.tsx)、[入口与提交](../../src/renderer/main.tsx)。
 
 ## 本轮自动检查
 
