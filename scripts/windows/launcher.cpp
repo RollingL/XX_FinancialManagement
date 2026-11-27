@@ -144,7 +144,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         if (!valid) throw Failure{L"不支持的启动参数；请直接双击 Qianlai.exe", ERROR_INVALID_PARAMETER};
         const DWORD code = supervise(probe, diagnostics);
         if (code != 0) report(L"钱来已退出，错误代码：" + std::to_wstring(code) +
-            L"。\n请保留 trial-data 和 backups，使用 START-TEST.cmd 保存诊断日志。", probe || diagnostics);
+            L"。\n请保留“数据”“备份”和“运行记录”文件夹，使用 START-TEST.cmd 保存诊断日志。", probe || diagnostics);
         return static_cast<int>(code);
     } catch (const Failure& failure) {
         report(failure.operation + L"失败，Windows 错误代码：" + std::to_wstring(failure.code) +
