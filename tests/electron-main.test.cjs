@@ -71,6 +71,8 @@ function harness(options = {}) {
     },
     rmSync(file, settings) {
       calls.push({ kind: 'rm', file, settings });
+      const error = options.rmErrors?.[path.basename(file)];
+      if (error) throw error;
     },
     renameSync(from, to) {
       calls.push({ kind: 'rename', from, to });
@@ -304,9 +306,14 @@ function assertProbeIsolation(h) {
     assert.equal(h.count(kind), 0, kind);
   assert.equal(h.handlers.size, 0);
   assert.equal(h.count('sqliteProbe'), 1);
-  assert.equal(h.count('rm'), 1);
-  const temporary = h.calls.find((call) => call.kind === 'mkdtemp').file;
-  assert.equal(h.calls.find((call) => call.kind === 'rm').file, temporary);
+  const temporary = h.calls.find((call) => call.kind === 'mkdtemp').file,
+    sqliteDir = path.join(temporary, 'sqlite');
+  assert.equal(h.calls.find((call) => call.kind === 'sqliteProbe').directory, sqliteDir);
+  // The SQLite files are removed first, then the rest of the temporary folder.
+  assert.deepEqual(
+    h.calls.filter((call) => call.kind === 'rm').map((call) => call.file),
+    [sqliteDir, temporary],
+  );
   assert.equal(h.paths.userData, temporary);
   assert.equal(h.paths.sessionData, temporary);
 }
@@ -332,6 +339,33 @@ test('probe succeeds with a passed SQLite report, without UI startup', async () 
       assert.deepEqual(JSON.parse(h.logs[0]), { sqlite: { status: 'passed' }, packaged });
       assertProbeIsolation(h);
     }
+});
+
+test('a probe still passes when Windows cannot yet delete Electron files, but not when SQLite files stay', async () => {
+  // Electron's helper processes keep their files in the temporary folder open until exit.
+  const busy = Object.assign(Error('ENOTEMPTY, Directory not empty'), { code: 'ENOTEMPTY' });
+  const h = harness({
+    probe: true,
+    packaged: true,
+    platform: 'win32',
+    rmErrors: { 'probe-temp': busy },
+  });
+  await h.start();
+  assert.deepEqual(h.exitCodes, [0]);
+  assert.deepEqual(h.errors, []);
+  assert.deepEqual(JSON.parse(h.logs[0]), { sqlite: { status: 'passed' }, packaged: true });
+  assertProbeIsolation(h);
+  // The probe's own SQLite files are closed when it finishes; if they cannot be removed,
+  // something is still open, and the probe must not report success.
+  const stuck = harness({
+    probe: true,
+    packaged: true,
+    platform: 'win32',
+    rmErrors: { sqlite: busy },
+  });
+  await stuck.start();
+  assert.deepEqual(stuck.exitCodes, [1]);
+  assert.ok(stuck.errors.some((text) => /ENOTEMPTY/.test(text)));
 });
 
 test('an unusable home folder stops startup before readiness or opening any ledger', () => {

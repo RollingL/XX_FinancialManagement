@@ -28,6 +28,20 @@ function useRuntimeFolder(root) {
     app.setPath(name, ensureDirectory(path.join(root, name)));
 }
 
+// The probe checks SQLite in its own sub-folder, whose files are all closed by the time it
+// finishes, so that sub-folder must be removed. The rest of the temporary folder is
+// Electron's own profile (for example the GPU cache), which Electron's helper processes keep
+// open until the program has exited; Windows cannot delete open files, so removing it is only
+// tried. It never holds ledger data.
+function removeProbeFolder(sqliteDir) {
+  fs.rmSync(sqliteDir, { recursive: true, force: true });
+  try {
+    fs.rmSync(probeDir, { recursive: true, force: true });
+  } catch {
+    // Left in the system temporary folder; see above.
+  }
+}
+
 let layout = null,
   portable = null,
   probeDir = null;
@@ -230,17 +244,23 @@ if (primary)
       startupEvent('app-ready');
       if (closing) return;
       if (isProbe) {
+        const sqliteDir = path.join(probeDir, 'sqlite');
+        let exitCode = 1;
         try {
-          const sqlite = await require('./sqlite-probe.cjs')(probeDir);
+          const sqlite = await require('./sqlite-probe.cjs')(sqliteDir);
           if (sqlite?.status !== 'passed') throw Error('SQLite 依赖探针未通过');
           console.log(JSON.stringify({ sqlite, packaged: app.isPackaged }, null, 2));
-          app.exit(0);
+          exitCode = 0;
         } catch (error) {
           console.error(error);
-          app.exit(1);
-        } finally {
-          fs.rmSync(probeDir, { recursive: true, force: true });
         }
+        try {
+          removeProbeFolder(sqliteDir);
+        } catch (error) {
+          console.error(error);
+          exitCode = 1;
+        }
+        app.exit(exitCode);
         return;
       }
       const template = appMenu.menuTemplate(process.platform);
